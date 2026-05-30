@@ -57,12 +57,17 @@ async def verify_missing_transfers(settings) -> None:
             db.update_transfer(t.id, TransferStatus.missing, "El archivo ya no existe en el destino")
 
 
-async def process_next_transfer() -> None:
-    transfer = db.next_pending_transfer()
-    if not transfer:
-        return
+_processing_lock = asyncio.Lock()
 
-    settings = db.get_settings()
+async def process_next_transfer() -> None:
+    if _processing_lock.locked():
+        return
+    async with _processing_lock:
+        transfer = db.next_pending_transfer()
+        if not transfer:
+            return
+
+        settings = db.get_settings()
     try:
         async with QbitClient(settings) as qbit:
             torrent = await qbit.torrent(transfer.torrent_hash)
