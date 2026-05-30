@@ -80,7 +80,8 @@ Variables disponibles en el template:
 {{torrent_hash}} — Hash SHA1
 {{source_path}} — Ruta origen
 {{destination_path}} — Ruta destino
-{{size}} — Tamaño en bytes
+{{size}} — Tamaño en bytes crudos
+{{size_human}} — Tamaño legible (ej: 1.50 GB, 300.00 MB)
 {{message}} — Mensaje (salida de rsync)
 {{created_at}} — Fecha de creación
 {{completed_at}} — Fecha de finalización

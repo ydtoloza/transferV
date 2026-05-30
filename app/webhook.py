@@ -15,6 +15,17 @@ def render_template(template: str, values: dict[str, str]) -> str:
     return Template(rendered).safe_substitute(values)
 
 
+def format_bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    elif size < 1024 ** 2:
+        return f"{size / 1024:.2f} KB"
+    elif size < 1024 ** 3:
+        return f"{size / 1024 ** 2:.2f} MB"
+    else:
+        return f"{size / 1024 ** 3:.2f} GB"
+
+
 async def send_webhook(
     settings: AppSettings,
     transfer: TransferRecord,
@@ -32,6 +43,7 @@ async def send_webhook(
         "source_path": transfer.source_path,
         "destination_path": transfer.destination_path,
         "size": str(transfer.size),
+        "size_human": format_bytes(transfer.size),
         "message": message,
         "created_at": transfer.created_at,
         "completed_at": transfer.completed_at or "",
