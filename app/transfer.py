@@ -44,7 +44,7 @@ def rsync_ssh_arg(settings: SshSettings) -> str:
 def remote_ref(settings: SshSettings, path: str) -> str:
     if not settings.host or not settings.username:
         raise TransferError("SSH host and username are required.")
-    return f"{settings.username}@{settings.host}:{shell_quote(path)}"
+    return f"{settings.username}@{settings.host}:{path}"
 
 
 def rsync_base(settings: AppSettings, ssh_settings: SshSettings) -> list[str]:

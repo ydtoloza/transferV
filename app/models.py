@@ -59,7 +59,7 @@ class AppSettings(BaseModel):
     destination_ssh: SshSettings = Field(default_factory=SshSettings)
     qbit: QbitSettings = Field(default_factory=QbitSettings)
     webhook: WebhookSettings = Field(default_factory=WebhookSettings)
-    rsync_args: str = "-a --partial --info=progress2"
+    rsync_args: str = "-a --partial --info=progress2 --protect-args"
 
 
 class TorrentFile(BaseModel):
