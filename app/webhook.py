@@ -31,14 +31,34 @@ async def send_webhook(
         "torrent_hash": transfer.torrent_hash,
         "source_path": transfer.source_path,
         "destination_path": transfer.destination_path,
+        "size": str(transfer.size),
         "message": message,
+        "created_at": transfer.created_at,
+        "completed_at": transfer.completed_at or "",
     }
     headers = json.loads(webhook.headers_json or "{}")
-    body_text = render_template(webhook.body_template, values)
+    
+    def replace_in_obj(obj):
+        if isinstance(obj, dict):
+            return {k: replace_in_obj(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [replace_in_obj(v) for v in obj]
+        elif isinstance(obj, str):
+            return render_template(obj, values)
+        return obj
+
     try:
-        body = json.loads(body_text)
+        # Si el template es un JSON válido, reemplazamos en los valores cacheados
+        # para que json=body serialice correctamente caracteres especiales y saltos de línea.
+        template_obj = json.loads(webhook.body_template)
+        body = replace_in_obj(template_obj)
     except json.JSONDecodeError:
-        body = body_text
+        # Fallback a reemplazo de texto crudo
+        body_text = render_template(webhook.body_template, values)
+        try:
+            body = json.loads(body_text)
+        except json.JSONDecodeError:
+            body = body_text
 
     kwargs = {"headers": headers}
     if webhook.method.upper() in ("POST", "PUT", "PATCH"):
