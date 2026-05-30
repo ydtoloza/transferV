@@ -70,9 +70,6 @@
             <div class="panel-actions">
               <div class="filter-group">
                 <input type="search" id="torrentSearch" placeholder="Buscar..." class="filter-input" />
-                <select id="trackerFilter" class="filter-select">
-                  <option value="">Todos los trackers</option>
-                </select>
                 <select id="stateFilter" class="filter-select">
                   <option value="">Todos los estados</option>
                   <option value="seeding">Seeding</option>
@@ -88,6 +85,9 @@
                 Actualizar
               </button>
             </div>
+          </div>
+          <div class="tracker-filters-wrapper">
+            <div id="trackerFilters" class="tracker-filters"></div>
           </div>
           <div id="torrentList" class="list"></div>
         </section>

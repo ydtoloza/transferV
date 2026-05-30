@@ -1,9 +1,8 @@
-// ── State ─────────────────────────────────────────────────
 const state = {
   settings: null,
   torrents: [],
   transfers: [],
-  trackers: new Set(),
+  activeTrackers: new Set(),
 };
 
 // ── Utils ──────────────────────────────────────────────────
@@ -135,12 +134,11 @@ function readForm() {
 // ── Render torrents ────────────────────────────────────────
 function getFilteredTorrents() {
   const search = $('#torrentSearch')?.value.toLowerCase() || '';
-  const tracker = $('#trackerFilter')?.value || '';
   const stateF = $('#stateFilter')?.value || '';
 
   return state.torrents.filter(t => {
     if (search && !t.name.toLowerCase().includes(search)) return false;
-    if (tracker && t.tracker !== tracker) return false;
+    if (state.activeTrackers.size > 0 && !state.activeTrackers.has(t.tracker)) return false;
     if (stateF) {
       const { cls } = stateInfo(t.state);
       if (!cls.includes(stateF)) return false;
@@ -151,11 +149,19 @@ function getFilteredTorrents() {
 
 function updateTrackerFilter() {
   const trackers = [...new Set(state.torrents.map(t => t.tracker).filter(Boolean))].sort();
-  const sel = $('#trackerFilter');
-  if (!sel) return;
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Todos los trackers</option>' +
-    trackers.map(t => `<option value="${escHtml(t)}" ${t===cur?'selected':''}>${escHtml(t)}</option>`).join('');
+  const container = $('#trackerFilters');
+  if (!container) return;
+  
+  // Limpiar trackers activos que ya no existen
+  const currentActive = new Set([...state.activeTrackers].filter(t => trackers.includes(t)));
+  state.activeTrackers = currentActive;
+
+  let html = `<button class="tracker-pill ${state.activeTrackers.size === 0 ? 'active' : ''}" data-tracker="">Todos</button>`;
+  html += trackers.map(t => 
+    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}">${escHtml(t)}</button>`
+  ).join('');
+  
+  container.innerHTML = html;
 }
 
 function renderTorrents() {
@@ -386,12 +392,28 @@ function bindEvents() {
 
   // Filters
   $('#torrentSearch')?.addEventListener('input', renderTorrents);
-  $('#trackerFilter')?.addEventListener('change', renderTorrents);
   $('#stateFilter')?.addEventListener('change', renderTorrents);
   $('#logsFilter')?.addEventListener('change', renderLogs);
 
-  // Delegation: transfer, delete, log toggle
+  // Delegation: transfer, delete, log toggle, tracker pills
   document.body.addEventListener('click', (e) => {
+    const trackerPill = e.target.closest('.tracker-pill');
+    if (trackerPill) {
+      const tracker = trackerPill.dataset.tracker;
+      if (!tracker) {
+        state.activeTrackers.clear();
+      } else {
+        if (state.activeTrackers.has(tracker)) {
+          state.activeTrackers.delete(tracker);
+        } else {
+          state.activeTrackers.add(tracker);
+        }
+      }
+      updateTrackerFilter();
+      renderTorrents();
+      return;
+    }
+
     const transferBtn = e.target.closest('[data-transfer]');
     if (transferBtn && !transferBtn.disabled) {
       queueTransfer(transferBtn.dataset.transfer);
