@@ -178,8 +178,9 @@ body {
 .panel {
   display: none;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .panel.active {
@@ -582,13 +583,14 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-height: 0;
 }
 
 .settings-section {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .settings-section-header {
@@ -599,6 +601,7 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--ink-2);
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
 }
 
 .settings-section-header h3 {
