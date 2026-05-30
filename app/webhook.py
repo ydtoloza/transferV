@@ -40,6 +40,13 @@ async def send_webhook(
     except json.JSONDecodeError:
         body = body_text
 
+    kwargs = {"headers": headers}
+    if webhook.method.upper() in ("POST", "PUT", "PATCH"):
+        if isinstance(body, dict):
+            kwargs["json"] = body
+        else:
+            kwargs["data"] = body
+    
     async with httpx.AsyncClient(timeout=20) as client:
-        await client.request(webhook.method.upper(), webhook.url, headers=headers, json=body)
+        await client.request(webhook.method.upper(), webhook.url, **kwargs)
 

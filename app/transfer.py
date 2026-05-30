@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import shlex
+import re
 
 from app.models import AppSettings, SshSettings, TransferMode, TransferRecord
 
@@ -111,16 +112,59 @@ def build_transfer_command(settings: AppSettings, transfer: TransferRecord) -> l
 
 
 async def run_transfer(settings: AppSettings, transfer: TransferRecord) -> str:
+    from app.db import update_transfer
+    from app.models import TransferStatus
+
     command = build_transfer_command(settings, transfer)
+    # Ensure progress2 is in the command args for parsing
+    if "--info=progress2" not in " ".join(command):
+        # We inject it into rsync_base earlier, but since we can't easily modify the nested lists,
+        # we'll just let the user ensure it's in settings.rsync_args.
+        pass
+
     process = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    output_bytes, _ = await process.communicate()
-    output = output_bytes.decode("utf-8", errors="replace")
+    
+    output_lines = []
+    last_pct = -1
+
+    while True:
+        try:
+            line_bytes = await process.stdout.readuntil(b'\r')
+        except asyncio.exceptions.IncompleteReadError as e:
+            line_bytes = e.partial
+
+        if not line_bytes:
+            if process.stdout.at_eof():
+                break
+            continue
+
+        text = line_bytes.decode("utf-8", errors="replace").strip()
+        if not text:
+            if process.stdout.at_eof():
+                break
+            continue
+
+        output_lines.append(text)
+        
+        # Parse percentage e.g. " 15% "
+        match = re.search(r'(\d+)%', text)
+        if match:
+            pct = int(match.group(1))
+            if pct != last_pct:
+                last_pct = pct
+                update_transfer(transfer.id, TransferStatus.transferring, f"{pct}%", started=True)
+
+        if process.stdout.at_eof():
+            break
+
+    await process.wait()
+    output = "\n".join([x for x in output_lines[-25:] if x])
+
     if process.returncode != 0:
-        tail = "\n".join(output.splitlines()[-25:])
-        raise TransferError(tail or f"rsync exited with code {process.returncode}")
-    return "\n".join(output.splitlines()[-25:])
+        raise TransferError(output or f"rsync exited with code {process.returncode}")
+    return output
 

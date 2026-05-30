@@ -43,6 +43,36 @@
             Ajustes
           </button>
         </nav>
+        
+        <div class="sidebar-status">
+          <div class="status-item">
+            <span class="status-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              qBittorrent
+            </span>
+            <div class="status-dot" id="dot-qbit"></div>
+          </div>
+          <div class="status-item">
+            <span class="status-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              Origen
+            </span>
+            <div class="status-actions">
+              <button class="status-action" data-restart="vps" title="Reiniciar SSH origen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+              <div class="status-dot" id="dot-vps"></div>
+            </div>
+          </div>
+          <div class="status-item">
+            <span class="status-label">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+              Destino
+            </span>
+            <div class="status-actions">
+              <button class="status-action" data-restart="destination" title="Reiniciar SSH destino"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+              <div class="status-dot" id="dot-destination"></div>
+            </div>
+          </div>
+        </div>
 
         <div class="sidebar-footer">
           <button class="nav-item" id="themeToggleBtn" title="Cambiar tema">
@@ -300,88 +330,6 @@
                   <span class="toggle-switch"></span>
                   Activar notificaciones por webhook
                 </label>
-              </div>
-
-              <div class="webhook-docs">
-                <details>
-                  <summary>Variables disponibles en el body template</summary>
-                  <div class="docs-grid">
-                    <code>{{status}}</code><span>Estado de la transferencia: <em>completed, failed, transferring</em></span>
-                    <code>{{torrent_name}}</code><span>Nombre del torrent</span>
-                    <code>{{torrent_hash}}</code><span>Hash SHA1 del torrent</span>
-                    <code>{{source_path}}</code><span>Ruta de origen del archivo</span>
-                    <code>{{destination_path}}</code><span>Ruta de destino</span>
-                    <code>{{size}}</code><span>Tamaño en bytes</span>
-                    <code>{{message}}</code><span>Mensaje del resultado (salida de rsync o error)</span>
-                    <code>{{created_at}}</code><span>Fecha de creación (ISO 8601)</span>
-                    <code>{{completed_at}}</code><span>Fecha de finalización (ISO 8601)</span>
-                  </div>
-                </details>
-
-                <details>
-                  <summary>Ejemplos de integraciones</summary>
-                  <div class="examples-list">
-                    <div class="example-card">
-                      <div class="example-title">
-                        <span class="example-badge">WhatsApp</span>
-                        CallMeBot API (gratis)
-                      </div>
-                      <div class="example-body">
-                        <p>URL: <code>https://api.callmebot.com/whatsapp.php?phone=TU_NUMERO&amp;text={{torrent_name}}+{{status}}&amp;apikey=TU_APIKEY</code></p>
-                        <p>Método: <code>GET</code> · Headers: <code>{}</code> · Body: <code>{}</code></p>
-                        <p class="example-note">Regístrate en <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank">callmebot.com</a> para obtener tu API key</p>
-                      </div>
-                    </div>
-                    <div class="example-card">
-                      <div class="example-title">
-                        <span class="example-badge">Telegram</span>
-                        Bot API
-                      </div>
-                      <div class="example-body">
-                        <p>URL: <code>https://api.telegram.org/bot&lt;TOKEN&gt;/sendMessage</code></p>
-                        <p>Método: <code>POST</code></p>
-                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
-                        <p>Body: <code>{"chat_id": "TU_CHAT_ID", "text": "✅ {{torrent_name}} → {{status}}"}</code></p>
-                      </div>
-                    </div>
-                    <div class="example-card">
-                      <div class="example-title">
-                        <span class="example-badge">Discord</span>
-                        Webhook de canal
-                      </div>
-                      <div class="example-body">
-                        <p>URL: Webhook URL del canal de Discord</p>
-                        <p>Método: <code>POST</code></p>
-                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
-                        <p>Body: <code>{"content": "**TransferV** {{status}}: `{{torrent_name}}` → `{{destination_path}}`"}</code></p>
-                      </div>
-                    </div>
-                    <div class="example-card">
-                      <div class="example-title">
-                        <span class="example-badge">Slack</span>
-                        Incoming Webhook
-                      </div>
-                      <div class="example-body">
-                        <p>URL: Incoming Webhook URL de Slack</p>
-                        <p>Método: <code>POST</code></p>
-                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
-                        <p>Body: <code>{"text": ":package: *{{torrent_name}}* — {{status}}"}</code></p>
-                      </div>
-                    </div>
-                    <div class="example-card">
-                      <div class="example-title">
-                        <span class="example-badge">Ntfy.sh</span>
-                        Push notifications
-                      </div>
-                      <div class="example-body">
-                        <p>URL: <code>https://ntfy.sh/TU_CANAL</code></p>
-                        <p>Método: <code>POST</code></p>
-                        <p>Headers: <code>{"Title": "TransferV", "Priority": "default"}</code></p>
-                        <p>Body: <code>{{torrent_name}} — {{status}}</code></p>
-                      </div>
-                    </div>
-                  </div>
-                </details>
               </div>
 
               <div class="settings-grid">

@@ -68,25 +68,54 @@ sh deploy/update.sh
 4. Configure SSH for the VPS and, when needed, for the destination server.
 5. Configure the webhook URL, headers, and body template.
 
-Available webhook variables:
+## Webhooks & Notificaciones
+
+Puedes configurar notificaciones para que TransferV avise cuando una transferencia finaliza o falla.
+
+Variables disponibles en el template:
 
 ```text
-{{status}}
-{{torrent_name}}
-{{torrent_hash}}
-{{source_path}}
-{{destination_path}}
-{{message}}
+{{status}} — Estado (completed, failed, transferring)
+{{torrent_name}} — Nombre del torrent
+{{torrent_hash}} — Hash SHA1
+{{source_path}} — Ruta origen
+{{destination_path}} — Ruta destino
+{{size}} — Tamaño en bytes
+{{message}} — Mensaje (salida de rsync)
+{{created_at}} — Fecha de creación
+{{completed_at}} — Fecha de finalización
 ```
 
-Example Evolution API-style body:
+### Ejemplos de integraciones
 
-```json
-{
-  "number": "573001112233",
-  "text": "TransferV: {{status}} - {{torrent_name}}"
-}
-```
+**WhatsApp (CallMeBot API gratis)**
+- URL: `https://api.callmebot.com/whatsapp.php?phone=TU_NUMERO&text={{torrent_name}}+{{status}}&apikey=TU_APIKEY`
+- Método: `GET`
+- Body: `{}` (vacío)
+
+**Telegram Bot API**
+- URL: `https://api.telegram.org/bot<TOKEN>/sendMessage`
+- Método: `POST`
+- Headers: `{"Content-Type": "application/json"}`
+- Body: `{"chat_id": "TU_CHAT_ID", "text": "✅ {{torrent_name}} → {{status}}"}`
+
+**Discord Webhook**
+- URL: `Tu URL de webhook de Discord`
+- Método: `POST`
+- Headers: `{"Content-Type": "application/json"}`
+- Body: `{"content": "**TransferV** {{status}}: `{{torrent_name}}` → `{{destination_path}}`"}`
+
+**Slack**
+- URL: `Tu Incoming Webhook URL`
+- Método: `POST`
+- Headers: `{"Content-Type": "application/json"}`
+- Body: `{"text": ":package: *{{torrent_name}}* — {{status}}"}`
+
+**Ntfy.sh**
+- URL: `https://ntfy.sh/TU_CANAL`
+- Método: `POST`
+- Headers: `{"Title": "TransferV", "Priority": "default"}`
+- Body: `{{torrent_name}} — {{status}}`
 
 ## Notes
 

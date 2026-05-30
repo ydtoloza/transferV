@@ -192,9 +192,12 @@ function renderTorrents() {
           ${t.tracker ? `<span class="badge badge-tracker">${escHtml(t.tracker)}</span>` : ''}
           <span class="badge ${cls}">${label}</span>
           <span class="badge badge-default">${bytes(t.size)}</span>
-          <button class="btn btn-queue" data-transfer="${escHtml(t.hash)}" ${queued?'disabled':''}>
-            ${queued ? 'En cola' : 'Transferir'}
-          </button>
+          ${t.transfer_status === 'completed'
+            ? `<span class="badge badge-ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Transferido</span>`
+            : `<button class="btn btn-queue" data-transfer="${escHtml(t.hash)}" ${queued?'disabled':''}>
+                ${queued ? 'En cola' : 'Transferir'}
+              </button>`
+          }
         </div>
       </div>
       <div class="item-meta">
@@ -226,6 +229,13 @@ function renderQueue() {
 
   el.innerHTML = active.map(t => {
     const { label, cls } = transferStateInfo(t.status);
+    let isTransferring = t.status === 'transferring';
+    let pctNum = 0;
+    if (isTransferring && t.message && t.message.includes('%')) {
+      const match = t.message.match(/(\d+)%/);
+      if (match) pctNum = parseInt(match[1]);
+    }
+
     return `
     <article class="item">
       <div class="item-header">
@@ -236,7 +246,12 @@ function renderQueue() {
         </div>
       </div>
       <div class="item-path">${escHtml(t.source_path)} → ${escHtml(t.destination_path)}</div>
-      ${t.message ? `<div class="item-path" style="margin-top:4px;color:var(--ink-2)">${escHtml(t.message)}</div>` : ''}
+      ${isTransferring ? `
+        <div class="progress-bar">
+          <div class="progress-fill" style="width:${pctNum}%"></div>
+        </div>
+      ` : ''}
+      ${t.message && !isTransferring ? `<div class="item-path" style="margin-top:4px;color:var(--ink-2)">${escHtml(t.message)}</div>` : ''}
     </article>`;
   }).join('');
 }
@@ -296,6 +311,28 @@ async function loadSettings() {
   fillForm(state.settings);
 }
 
+async function loadStatus() {
+  try {
+    const st = await api('/api/status');
+    $('#dot-qbit').className = 'status-dot ' + (st.qbit ? 'ok' : 'bad');
+    $('#dot-vps').className = 'status-dot ' + (st.vps ? 'ok' : 'bad');
+    $('#dot-destination').className = 'status-dot ' + (st.destination ? 'ok' : 'bad');
+  } catch (err) {
+    $$('.status-dot').forEach(el => el.className = 'status-dot bad');
+  }
+}
+
+async function restartSsh(target) {
+  try {
+    toast(`Reiniciando SSH en ${target}...`, '', 'info');
+    await api(`/api/system/restart-ssh/${target}`, { method: 'POST' });
+    toast(`SSH reiniciado (${target})`, '', 'ok');
+    setTimeout(loadStatus, 2000);
+  } catch (err) {
+    toast(`Error al reiniciar SSH`, err.message, 'error');
+  }
+}
+
 async function loadTorrents() {
   state.torrents = await api('/api/torrents');
   updateTrackerFilter();
@@ -310,7 +347,7 @@ async function loadTransfers() {
 
 async function refreshAll() {
   try {
-    await Promise.all([loadSettings(), loadTorrents(), loadTransfers()]);
+    await Promise.all([loadSettings(), loadTorrents(), loadTransfers(), loadStatus()]);
   } catch (err) {
     toast('Error al actualizar', err.message, 'error');
   }
@@ -395,8 +432,14 @@ function bindEvents() {
   $('#stateFilter')?.addEventListener('change', renderTorrents);
   $('#logsFilter')?.addEventListener('change', renderLogs);
 
-  // Delegation: transfer, delete, log toggle, tracker pills
+  // Delegation: transfer, delete, log toggle, tracker pills, restart ssh
   document.body.addEventListener('click', (e) => {
+    const restartBtn = e.target.closest('[data-restart]');
+    if (restartBtn) {
+      restartSsh(restartBtn.dataset.restart);
+      return;
+    }
+
     const trackerPill = e.target.closest('.tracker-pill');
     if (trackerPill) {
       const tracker = trackerPill.dataset.tracker;
@@ -445,3 +488,6 @@ setInterval(() => {
   loadTorrents().catch(() => {});
   loadTransfers().catch(() => {});
 }, 15000);
+setInterval(() => {
+  loadStatus().catch(() => {});
+}, 30000);
