@@ -95,12 +95,14 @@ async def process_next_transfer() -> None:
     except TransferError as exc:
         message = str(exc)
         db.update_transfer(transfer.id, TransferStatus.failed, message, completed=True)
-        await notify(settings, current, TransferStatus.failed, message)
+        updated = db.get_transfer(transfer.id) or current
+        await notify(settings, updated, TransferStatus.failed, message)
         return
 
     message = output or "Transfer completed."
     db.update_transfer(transfer.id, TransferStatus.completed, message, completed=True)
-    await notify(settings, current, TransferStatus.completed, message)
+    updated = db.get_transfer(transfer.id) or current
+    await notify(settings, updated, TransferStatus.completed, message)
 
 
 async def notify(settings, transfer, status: TransferStatus, message: str) -> None:
