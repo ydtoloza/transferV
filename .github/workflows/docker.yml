@@ -1,4 +1,4 @@
-name: Docker
+name: Build & Release
 
 on:
   push:
@@ -7,20 +7,27 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
-  packages: write
+  contents: write   # needed to create GitHub Releases
+  packages: write   # needed to push to GHCR
 
 env:
   IMAGE_NAME: ghcr.io/ydtoloza/transferv
 
 jobs:
-  build-and-push:
+  build-and-release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Generate version tag
+        id: version
+        run: |
+          VERSION="$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -42,6 +49,7 @@ jobs:
           images: ${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=${{ steps.version.outputs.version }}
             type=sha,prefix=sha-
 
       - name: Build and push
@@ -55,3 +63,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "Release ${{ steps.version.outputs.version }}"
+          generate_release_notes: true
+          body: |
+            ## 🐳 Docker Image
+            ```
+            ghcr.io/ydtoloza/transferv:latest
+            ghcr.io/ydtoloza/transferv:${{ steps.version.outputs.version }}
+            ```
+
+            ## 🚀 Actualizar en el VPS
+            ```bash
+            docker compose pull && docker compose up -d
+            ```
