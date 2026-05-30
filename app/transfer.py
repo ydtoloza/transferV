@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import shlex
 import re
+import os
+import posixpath
 
 from app.models import AppSettings, SshSettings, TransferMode, TransferRecord
 
@@ -167,4 +169,25 @@ async def run_transfer(settings: AppSettings, transfer: TransferRecord) -> str:
     if process.returncode != 0:
         raise TransferError(output or f"rsync exited with code {process.returncode}")
     return output
+
+async def verify_destination(settings: AppSettings, transfer: TransferRecord) -> bool:
+    target_name = posixpath.basename(transfer.source_path.rstrip("/"))
+    dest_path = posixpath.join(transfer.destination_path, target_name)
+    
+    if settings.transfer_mode == TransferMode.local_pull:
+        return os.path.exists(dest_path)
+        
+    if not settings.destination_ssh.host or not settings.destination_ssh.username:
+        return False
+        
+    cmd = ssh_prefix(settings.destination_ssh)
+    cmd.extend([f"{settings.destination_ssh.username}@{settings.destination_ssh.host}", "test", "-e", shell_quote(dest_path)])
+    
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE
+    )
+    await process.communicate()
+    return process.returncode == 0
 

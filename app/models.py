@@ -22,6 +22,7 @@ class TransferStatus(str, Enum):
     completed = "completed"
     failed = "failed"
     cancelled = "cancelled"
+    missing = "missing"
 
 
 class SshSettings(BaseModel):

@@ -504,6 +504,7 @@ body {
 .badge-ok       { background: var(--ok-dim);    color: var(--ok); }
 .badge-warn     { background: var(--warn-dim);   color: var(--warn); }
 .badge-bad      { background: var(--bad-dim);    color: var(--bad); }
+.badge-missing  { background: transparent; color: var(--bad); border: 1px dashed var(--bad); }
 .badge-accent   { background: var(--accent-dim); color: var(--accent-hover); }
 .badge-tracker  { background: var(--surface-3); color: var(--ink-3); font-size: 10.5px; }
 

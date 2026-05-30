@@ -59,6 +59,7 @@ const TRANSFER_STATE_MAP = {
   completed:    { label: 'Completado',    cls: 'badge-ok' },
   failed:       { label: 'Fallido',       cls: 'badge-bad' },
   cancelled:    { label: 'Cancelado',     cls: 'badge-default' },
+  missing:      { label: 'Borrado en destino', cls: 'badge-missing' },
 };
 
 function stateInfo(raw) {

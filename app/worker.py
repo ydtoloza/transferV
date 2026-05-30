@@ -6,7 +6,9 @@ from contextlib import suppress
 from app import db
 from app.models import TransferStatus
 from app.qbit import QbitClient, is_complete
-from app.transfer import TransferError, run_transfer
+from app.transfer import TransferError, run_transfer, verify_destination
+from app.webhook import send_webhook
+import time
 from app.webhook import send_webhook
 
 
@@ -28,13 +30,31 @@ class TransferWorker:
                 await self._task
 
     async def _run(self) -> None:
+        last_verify = 0.0
         while not self._stop.is_set():
             settings = db.get_settings()
             try:
                 await process_next_transfer()
             except Exception:
                 pass
+                
+            # Verify missing files every 10 minutes
+            if time.time() - last_verify > 600:
+                try:
+                    await verify_missing_transfers(settings)
+                except Exception:
+                    pass
+                last_verify = time.time()
+                
             await asyncio.sleep(settings.poll_interval_seconds)
+
+async def verify_missing_transfers(settings) -> None:
+    transfers = db.list_transfers(limit=1000)
+    completed = [t for t in transfers if t.status == TransferStatus.completed]
+    for t in completed:
+        exists = await verify_destination(settings, t)
+        if not exists:
+            db.update_transfer(t.id, TransferStatus.missing, "El archivo ya no existe en el destino")
 
 
 async def process_next_transfer() -> None:
