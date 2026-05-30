@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from string import Template
 import re
+import datetime
 
 import httpx
 
@@ -47,6 +48,20 @@ def format_rsync_summary(msg: str) -> str:
     return msg
 
 
+def format_colombia_time(iso_str: str | None) -> str:
+    if not iso_str:
+        return ""
+    try:
+        clean_str = iso_str.replace("Z", "+00:00")
+        dt = datetime.datetime.fromisoformat(clean_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        dt_cot = dt.astimezone(datetime.timezone(datetime.timedelta(hours=-5)))
+        return dt_cot.strftime("%Y-%m-%d %H:%M:%S COT")
+    except Exception:
+        return iso_str
+
+
 async def send_webhook(
     settings: AppSettings,
     transfer: TransferRecord,
@@ -66,8 +81,8 @@ async def send_webhook(
         "size": str(transfer.size),
         "size_human": format_bytes(transfer.size),
         "message": format_rsync_summary(message),
-        "created_at": transfer.created_at,
-        "completed_at": transfer.completed_at or "",
+        "created_at": format_colombia_time(transfer.created_at),
+        "completed_at": format_colombia_time(transfer.completed_at),
     }
     headers = json.loads(webhook.headers_json or "{}")
     
