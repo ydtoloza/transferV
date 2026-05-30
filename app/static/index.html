@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TransferV</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="topbar">
+        <div>
+          <h1>TransferV</h1>
+          <p>Cola de transferencias desde qBittorrent hacia tu servidor de medios.</p>
+        </div>
+        <div class="actions">
+          <button id="refreshBtn" type="button">Actualizar</button>
+          <button id="saveBtn" type="button" class="primary">Guardar ajustes</button>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Vistas">
+        <button class="tab active" data-tab="torrents" type="button">Torrents</button>
+        <button class="tab" data-tab="transfers" type="button">Cola</button>
+        <button class="tab" data-tab="settings" type="button">Ajustes</button>
+      </nav>
+
+      <section id="notice" class="notice" hidden></section>
+
+      <section id="torrents" class="panel active">
+        <div class="panel-head">
+          <h2>qBittorrent</h2>
+          <span id="torrentCount"></span>
+        </div>
+        <div id="torrentList" class="list"></div>
+      </section>
+
+      <section id="transfers" class="panel">
+        <div class="panel-head">
+          <h2>Cola e historial</h2>
+          <button id="runOnceBtn" type="button">Procesar ahora</button>
+        </div>
+        <div id="transferList" class="list"></div>
+      </section>
+
+      <section id="settings" class="panel">
+        <form id="settingsForm" class="settings-grid">
+          <fieldset>
+            <legend>General</legend>
+            <label>Modo
+              <select name="transfer_mode">
+                <option value="local_pull">Servidor local trae desde VPS</option>
+                <option value="orchestrated_pull">Orquestador ordena al destino traer</option>
+                <option value="remote_push">VPS empuja al destino</option>
+              </select>
+            </label>
+            <label>Intervalo de revisión
+              <input name="poll_interval_seconds" type="number" min="10" max="3600" />
+            </label>
+            <label>Ruta destino fija
+              <input name="destination_path" placeholder="/mnt/media/imports" />
+            </label>
+            <label>Argumentos rsync
+              <input name="rsync_args" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>qBittorrent</legend>
+            <label>URL WebUI
+              <input name="qbit.url" placeholder="http://vps-tailnet:8080" />
+            </label>
+            <label>Usuario
+              <input name="qbit.username" />
+            </label>
+            <label>Contraseña
+              <input name="qbit.password" type="password" />
+            </label>
+            <label>Ruta descargas
+              <input name="qbit.downloads_path" placeholder="/downloads" />
+            </label>
+            <label>Ruta real por SSH
+              <input name="qbit.host_downloads_path" placeholder="/home/mediaserver/media/downloads" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>SSH VPS</legend>
+            <label>Host
+              <input name="vps_ssh.host" placeholder="vps.tailnet.ts.net" />
+            </label>
+            <label>Puerto
+              <input name="vps_ssh.port" type="number" />
+            </label>
+            <label>Usuario
+              <input name="vps_ssh.username" />
+            </label>
+            <label>Método
+              <select name="vps_ssh.auth_method">
+                <option value="key">Archivo key</option>
+                <option value="password">Contraseña</option>
+              </select>
+            </label>
+            <label>Key path
+              <input name="vps_ssh.key_path" placeholder="/keys/id_ed25519" />
+            </label>
+            <label>Contraseña
+              <input name="vps_ssh.password" type="password" />
+            </label>
+          </fieldset>
+
+          <fieldset>
+            <legend>SSH destino</legend>
+            <label>Host
+              <input name="destination_ssh.host" placeholder="media.tailnet.ts.net" />
+            </label>
+            <label>Puerto
+              <input name="destination_ssh.port" type="number" />
+            </label>
+            <label>Usuario
+              <input name="destination_ssh.username" />
+            </label>
+            <label>Método
+              <select name="destination_ssh.auth_method">
+                <option value="key">Archivo key</option>
+                <option value="password">Contraseña</option>
+              </select>
+            </label>
+            <label>Key path
+              <input name="destination_ssh.key_path" placeholder="/keys/id_ed25519" />
+            </label>
+            <label>Contraseña
+              <input name="destination_ssh.password" type="password" />
+            </label>
+          </fieldset>
+
+          <fieldset class="wide">
+            <legend>Webhook</legend>
+            <label class="check">
+              <input name="webhook.enabled" type="checkbox" />
+              Activar webhook
+            </label>
+            <label>URL
+              <input name="webhook.url" />
+            </label>
+            <label>Método
+              <input name="webhook.method" />
+            </label>
+            <label>Headers JSON
+              <textarea name="webhook.headers_json" rows="3"></textarea>
+            </label>
+            <label>Body template
+              <textarea name="webhook.body_template" rows="5"></textarea>
+            </label>
+          </fieldset>
+        </form>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

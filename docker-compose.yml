@@ -1,0 +1,14 @@
+services:
+  transferv:
+    build: .
+    container_name: transferv
+    ports:
+      - "8080:8080"
+    environment:
+      TRANSFERV_DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      # Mount keys here if you want to reference them in settings.
+      # - ~/.ssh:/keys:ro
+    restart: unless-stopped
+
