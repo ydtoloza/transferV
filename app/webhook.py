@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from string import Template
+import re
 
 import httpx
 
@@ -26,6 +27,26 @@ def format_bytes(size: int) -> str:
         return f"{size / 1024 ** 3:.2f} GB"
 
 
+def format_rsync_summary(msg: str) -> str:
+    match1 = re.search(r'sent ([\d,]+) bytes.*?received ([\d,]+) bytes.*?([\d.,]+)\s*bytes/sec', msg)
+    match2 = re.search(r'total size is ([\d,]+).*?speedup is ([\d.]+)', msg)
+    
+    if match1 and match2:
+        try:
+            sent = format_bytes(int(match1.group(1).replace(',', '')))
+            rec = format_bytes(int(match1.group(2).replace(',', '')))
+            speed_raw = float(match1.group(3).replace(',', ''))
+            speed = f"{format_bytes(int(speed_raw))}/s"
+            
+            total = format_bytes(int(match2.group(1).replace(',', '')))
+            speedup = match2.group(2)
+            
+            return f"enviado: {sent}  recibido: {rec}  velocidad: {speed}\ntamaño total: {total}  aceleración: {speedup}"
+        except Exception:
+            pass
+    return msg
+
+
 async def send_webhook(
     settings: AppSettings,
     transfer: TransferRecord,
@@ -44,7 +65,7 @@ async def send_webhook(
         "destination_path": transfer.destination_path,
         "size": str(transfer.size),
         "size_human": format_bytes(transfer.size),
-        "message": message,
+        "message": format_rsync_summary(message),
         "created_at": transfer.created_at,
         "completed_at": transfer.completed_at or "",
     }
