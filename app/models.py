@@ -78,6 +78,8 @@ class Torrent(BaseModel):
     content_path: str = ""
     files: list[TorrentFile] = Field(default_factory=list)
     queued: bool = False
+    added_on: int = 0
+    tracker: str = ""
 
 
 class TransferCreate(BaseModel):

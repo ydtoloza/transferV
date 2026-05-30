@@ -63,6 +63,14 @@ async def get_transfers() -> list[TransferRecord]:
     return db.list_transfers()
 
 
+@app.delete("/api/transfers/{transfer_id}", response_model=ApiMessage)
+async def delete_transfer(transfer_id: int) -> ApiMessage:
+    deleted = db.delete_transfer(transfer_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Transfer not found.")
+    return ApiMessage(ok=True, message="Transfer deleted.")
+
+
 @app.post("/api/worker/run-once", response_model=ApiMessage)
 async def run_worker_once() -> ApiMessage:
     await process_next_transfer()
@@ -75,4 +83,3 @@ async def index() -> FileResponse:
 
 
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
-

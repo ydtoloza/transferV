@@ -1,161 +1,418 @@
 <!doctype html>
-<html lang="es">
+<html lang="es" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TransferV</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <section class="topbar">
-        <div>
-          <h1>TransferV</h1>
-          <p>Cola de transferencias desde qBittorrent hacia tu servidor de medios.</p>
+    <div class="layout">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <span class="sidebar-logo">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+            </svg>
+          </span>
+          <span class="sidebar-title">TransferV</span>
         </div>
-        <div class="actions">
-          <button id="refreshBtn" type="button">Actualizar</button>
-          <button id="saveBtn" type="button" class="primary">Guardar ajustes</button>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-panel="torrents" id="nav-torrents">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Torrents
+            <span class="nav-badge" id="navBadgeTorrents"></span>
+          </button>
+          <button class="nav-item" data-panel="queue" id="nav-queue">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            Cola
+            <span class="nav-badge" id="navBadgeQueue"></span>
+          </button>
+          <button class="nav-item" data-panel="logs" id="nav-logs">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            Logs
+          </button>
+          <button class="nav-item" data-panel="settings" id="nav-settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.41 14.14M4.93 4.93a10 10 0 0 0-1.41 14.14"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            Ajustes
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <button class="nav-item" id="themeToggleBtn" title="Cambiar tema">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="themeIcon">
+              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            Tema
+          </button>
         </div>
-      </section>
+      </aside>
 
-      <nav class="tabs" aria-label="Vistas">
-        <button class="tab active" data-tab="torrents" type="button">Torrents</button>
-        <button class="tab" data-tab="transfers" type="button">Cola</button>
-        <button class="tab" data-tab="settings" type="button">Ajustes</button>
-      </nav>
+      <!-- Main content -->
+      <div class="main">
 
-      <section id="notice" class="notice" hidden></section>
+        <!-- Toast container -->
+        <div id="toastContainer" class="toast-container"></div>
 
-      <section id="torrents" class="panel active">
-        <div class="panel-head">
-          <h2>qBittorrent</h2>
-          <span id="torrentCount"></span>
-        </div>
-        <div id="torrentList" class="list"></div>
-      </section>
+        <!-- Torrents Panel -->
+        <section id="panel-torrents" class="panel active">
+          <div class="panel-topbar">
+            <div>
+              <h2>Torrents</h2>
+              <p class="panel-sub" id="torrentCount">Cargando...</p>
+            </div>
+            <div class="panel-actions">
+              <div class="filter-group">
+                <input type="search" id="torrentSearch" placeholder="Buscar..." class="filter-input" />
+                <select id="trackerFilter" class="filter-select">
+                  <option value="">Todos los trackers</option>
+                </select>
+                <select id="stateFilter" class="filter-select">
+                  <option value="">Todos los estados</option>
+                  <option value="seeding">Seeding</option>
+                  <option value="downloading">Descargando</option>
+                  <option value="paused">Pausado</option>
+                  <option value="checking">Verificando</option>
+                  <option value="queued">En cola</option>
+                  <option value="error">Error</option>
+                </select>
+              </div>
+              <button id="refreshBtn" class="btn btn-ghost">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                Actualizar
+              </button>
+            </div>
+          </div>
+          <div id="torrentList" class="list"></div>
+        </section>
 
-      <section id="transfers" class="panel">
-        <div class="panel-head">
-          <h2>Cola e historial</h2>
-          <button id="runOnceBtn" type="button">Procesar ahora</button>
-        </div>
-        <div id="transferList" class="list"></div>
-      </section>
+        <!-- Queue Panel -->
+        <section id="panel-queue" class="panel">
+          <div class="panel-topbar">
+            <div>
+              <h2>Cola de transferencias</h2>
+              <p class="panel-sub">Transferencias activas y pendientes</p>
+            </div>
+            <div class="panel-actions">
+              <button id="runOnceBtn" class="btn btn-ghost">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Procesar ahora
+              </button>
+            </div>
+          </div>
+          <div id="transferList" class="list"></div>
+        </section>
 
-      <section id="settings" class="panel">
-        <form id="settingsForm" class="settings-grid">
-          <fieldset>
-            <legend>General</legend>
-            <label>Modo
-              <select name="transfer_mode">
-                <option value="local_pull">Servidor local trae desde VPS</option>
-                <option value="orchestrated_pull">Orquestador ordena al destino traer</option>
-                <option value="remote_push">VPS empuja al destino</option>
+        <!-- Logs Panel -->
+        <section id="panel-logs" class="panel">
+          <div class="panel-topbar">
+            <div>
+              <h2>Historial y logs</h2>
+              <p class="panel-sub">Registro completo de todas las transferencias</p>
+            </div>
+            <div class="panel-actions">
+              <select id="logsFilter" class="filter-select">
+                <option value="">Todos</option>
+                <option value="completed">Completados</option>
+                <option value="failed">Fallidos</option>
+                <option value="cancelled">Cancelados</option>
               </select>
-            </label>
-            <label>Intervalo de revisión
-              <input name="poll_interval_seconds" type="number" min="10" max="3600" />
-            </label>
-            <label>Ruta destino fija
-              <input name="destination_path" placeholder="/mnt/media/imports" />
-            </label>
-            <label>Argumentos rsync
-              <input name="rsync_args" />
-            </label>
-          </fieldset>
+            </div>
+          </div>
+          <div id="logsList" class="list logs-list"></div>
+        </section>
 
-          <fieldset>
-            <legend>qBittorrent</legend>
-            <label>URL WebUI
-              <input name="qbit.url" placeholder="http://vps-tailnet:8080" />
-            </label>
-            <label>Usuario
-              <input name="qbit.username" />
-            </label>
-            <label>Contraseña
-              <input name="qbit.password" type="password" />
-            </label>
-            <label>Ruta descargas
-              <input name="qbit.downloads_path" placeholder="/downloads" />
-            </label>
-            <label>Ruta real por SSH
-              <input name="qbit.host_downloads_path" placeholder="/home/mediaserver/media/downloads" />
-            </label>
-          </fieldset>
+        <!-- Settings Panel -->
+        <section id="panel-settings" class="panel">
+          <div class="panel-topbar">
+            <div>
+              <h2>Configuración</h2>
+              <p class="panel-sub">Ajusta la conexión y el comportamiento de TransferV</p>
+            </div>
+            <div class="panel-actions">
+              <button id="saveBtn" class="btn btn-primary">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13"/><polyline points="7 3 7 8 15 8"/></svg>
+                Guardar
+              </button>
+            </div>
+          </div>
 
-          <fieldset>
-            <legend>SSH VPS</legend>
-            <label>Host
-              <input name="vps_ssh.host" placeholder="vps.tailnet.ts.net" />
-            </label>
-            <label>Puerto
-              <input name="vps_ssh.port" type="number" />
-            </label>
-            <label>Usuario
-              <input name="vps_ssh.username" />
-            </label>
-            <label>Método
-              <select name="vps_ssh.auth_method">
-                <option value="key">Archivo key</option>
-                <option value="password">Contraseña</option>
-              </select>
-            </label>
-            <label>Key path
-              <input name="vps_ssh.key_path" placeholder="/keys/id_ed25519" />
-            </label>
-            <label>Contraseña
-              <input name="vps_ssh.password" type="password" />
-            </label>
-          </fieldset>
+          <form id="settingsForm" class="settings-layout">
 
-          <fieldset>
-            <legend>SSH destino</legend>
-            <label>Host
-              <input name="destination_ssh.host" placeholder="media.tailnet.ts.net" />
-            </label>
-            <label>Puerto
-              <input name="destination_ssh.port" type="number" />
-            </label>
-            <label>Usuario
-              <input name="destination_ssh.username" />
-            </label>
-            <label>Método
-              <select name="destination_ssh.auth_method">
-                <option value="key">Archivo key</option>
-                <option value="password">Contraseña</option>
-              </select>
-            </label>
-            <label>Key path
-              <input name="destination_ssh.key_path" placeholder="/keys/id_ed25519" />
-            </label>
-            <label>Contraseña
-              <input name="destination_ssh.password" type="password" />
-            </label>
-          </fieldset>
+            <!-- General -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.41 14.14"/></svg>
+                <h3>General</h3>
+              </div>
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="s-mode">Modo de transferencia</label>
+                  <p class="field-hint">Define desde dónde se ejecuta el rsync</p>
+                  <select name="transfer_mode" id="s-mode">
+                    <option value="local_pull">Local pull — este servidor descarga desde el origen</option>
+                    <option value="orchestrated_pull">Orchestrated pull — el destino descarga desde el origen (recomendado)</option>
+                    <option value="remote_push">Remote push — el origen empuja hacia el destino</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-interval">Intervalo de revisión (segundos)</label>
+                  <p class="field-hint">Cada cuántos segundos se revisa la cola (10–3600)</p>
+                  <input name="poll_interval_seconds" id="s-interval" type="number" min="10" max="3600" />
+                </div>
+                <div class="field">
+                  <label for="s-dest">Ruta de destino por defecto</label>
+                  <p class="field-hint">Carpeta en el servidor destino donde se guardarán los archivos</p>
+                  <input name="destination_path" id="s-dest" placeholder="/mnt/storage/downloads" />
+                </div>
+                <div class="field">
+                  <label for="s-rsync">Argumentos de rsync</label>
+                  <p class="field-hint">Opciones adicionales para rsync. Usa <code>--protect-args</code> para rutas con espacios</p>
+                  <input name="rsync_args" id="s-rsync" />
+                </div>
+              </div>
+            </div>
 
-          <fieldset class="wide">
-            <legend>Webhook</legend>
-            <label class="check">
-              <input name="webhook.enabled" type="checkbox" />
-              Activar webhook
-            </label>
-            <label>URL
-              <input name="webhook.url" />
-            </label>
-            <label>Método
-              <input name="webhook.method" />
-            </label>
-            <label>Headers JSON
-              <textarea name="webhook.headers_json" rows="3"></textarea>
-            </label>
-            <label>Body template
-              <textarea name="webhook.body_template" rows="5"></textarea>
-            </label>
-          </fieldset>
-        </form>
-      </section>
-    </main>
+            <!-- qBittorrent -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                <h3>qBittorrent</h3>
+              </div>
+              <div class="settings-grid">
+                <div class="field field-wide">
+                  <label for="s-qbit-url">URL de la interfaz web</label>
+                  <p class="field-hint">Dirección completa de qBittorrent (incluye puerto)</p>
+                  <input name="qbit.url" id="s-qbit-url" placeholder="http://192.168.1.100:8080" />
+                </div>
+                <div class="field">
+                  <label for="s-qbit-user">Usuario</label>
+                  <input name="qbit.username" id="s-qbit-user" />
+                </div>
+                <div class="field">
+                  <label for="s-qbit-pass">Contraseña</label>
+                  <input name="qbit.password" id="s-qbit-pass" type="password" />
+                </div>
+                <div class="field">
+                  <label for="s-qbit-dl">Ruta de descargas (dentro de qBittorrent)</label>
+                  <p class="field-hint">Ruta como la ve qBittorrent internamente</p>
+                  <input name="qbit.downloads_path" id="s-qbit-dl" placeholder="/downloads" />
+                </div>
+                <div class="field">
+                  <label for="s-qbit-host-dl">Ruta real de descargas (en el servidor)</label>
+                  <p class="field-hint">Ruta real en el sistema de archivos del servidor origen (para SSH)</p>
+                  <input name="qbit.host_downloads_path" id="s-qbit-host-dl" placeholder="/home/user/media/downloads" />
+                </div>
+              </div>
+            </div>
+
+            <!-- SSH Origen -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+                <h3>SSH — Servidor origen (donde está qBittorrent)</h3>
+              </div>
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="s-vps-host">Host / IP</label>
+                  <input name="vps_ssh.host" id="s-vps-host" placeholder="192.168.1.100 o vps.example.com" />
+                </div>
+                <div class="field">
+                  <label for="s-vps-port">Puerto SSH</label>
+                  <input name="vps_ssh.port" id="s-vps-port" type="number" />
+                </div>
+                <div class="field">
+                  <label for="s-vps-user">Usuario SSH</label>
+                  <input name="vps_ssh.username" id="s-vps-user" />
+                </div>
+                <div class="field">
+                  <label for="s-vps-auth">Método de autenticación</label>
+                  <select name="vps_ssh.auth_method" id="s-vps-auth">
+                    <option value="key">Llave SSH (id_rsa / id_ed25519)</option>
+                    <option value="password">Contraseña</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-vps-key">Ruta a la llave privada</label>
+                  <p class="field-hint">Ruta dentro del contenedor (monta tu llave como volumen)</p>
+                  <input name="vps_ssh.key_path" id="s-vps-key" placeholder="/keys/id_ed25519" />
+                </div>
+                <div class="field">
+                  <label for="s-vps-pw">Contraseña SSH</label>
+                  <input name="vps_ssh.password" id="s-vps-pw" type="password" />
+                </div>
+              </div>
+            </div>
+
+            <!-- SSH Destino -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                <h3>SSH — Servidor destino (donde van los archivos)</h3>
+              </div>
+              <div class="settings-grid">
+                <div class="field">
+                  <label for="s-dst-host">Host / IP</label>
+                  <input name="destination_ssh.host" id="s-dst-host" placeholder="192.168.1.200 o media.example.com" />
+                </div>
+                <div class="field">
+                  <label for="s-dst-port">Puerto SSH</label>
+                  <input name="destination_ssh.port" id="s-dst-port" type="number" />
+                </div>
+                <div class="field">
+                  <label for="s-dst-user">Usuario SSH</label>
+                  <input name="destination_ssh.username" id="s-dst-user" />
+                </div>
+                <div class="field">
+                  <label for="s-dst-auth">Método de autenticación</label>
+                  <select name="destination_ssh.auth_method" id="s-dst-auth">
+                    <option value="key">Llave SSH</option>
+                    <option value="password">Contraseña</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="s-dst-key">Ruta a la llave privada</label>
+                  <input name="destination_ssh.key_path" id="s-dst-key" placeholder="/keys/id_ed25519" />
+                </div>
+                <div class="field">
+                  <label for="s-dst-pw">Contraseña SSH</label>
+                  <input name="destination_ssh.password" id="s-dst-pw" type="password" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Webhook -->
+            <div class="settings-section">
+              <div class="settings-section-header">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+                <h3>Notificaciones (Webhook)</h3>
+              </div>
+
+              <div class="webhook-toggle-row">
+                <label class="toggle-label">
+                  <input name="webhook.enabled" id="s-wh-enabled" type="checkbox" class="toggle-input" />
+                  <span class="toggle-switch"></span>
+                  Activar notificaciones por webhook
+                </label>
+              </div>
+
+              <div class="webhook-docs">
+                <details>
+                  <summary>Variables disponibles en el body template</summary>
+                  <div class="docs-grid">
+                    <code>{{status}}</code><span>Estado de la transferencia: <em>completed, failed, transferring</em></span>
+                    <code>{{torrent_name}}</code><span>Nombre del torrent</span>
+                    <code>{{torrent_hash}}</code><span>Hash SHA1 del torrent</span>
+                    <code>{{source_path}}</code><span>Ruta de origen del archivo</span>
+                    <code>{{destination_path}}</code><span>Ruta de destino</span>
+                    <code>{{size}}</code><span>Tamaño en bytes</span>
+                    <code>{{message}}</code><span>Mensaje del resultado (salida de rsync o error)</span>
+                    <code>{{created_at}}</code><span>Fecha de creación (ISO 8601)</span>
+                    <code>{{completed_at}}</code><span>Fecha de finalización (ISO 8601)</span>
+                  </div>
+                </details>
+
+                <details>
+                  <summary>Ejemplos de integraciones</summary>
+                  <div class="examples-list">
+                    <div class="example-card">
+                      <div class="example-title">
+                        <span class="example-badge">WhatsApp</span>
+                        CallMeBot API (gratis)
+                      </div>
+                      <div class="example-body">
+                        <p>URL: <code>https://api.callmebot.com/whatsapp.php?phone=TU_NUMERO&amp;text={{torrent_name}}+{{status}}&amp;apikey=TU_APIKEY</code></p>
+                        <p>Método: <code>GET</code> · Headers: <code>{}</code> · Body: <code>{}</code></p>
+                        <p class="example-note">Regístrate en <a href="https://www.callmebot.com/blog/free-api-whatsapp-messages/" target="_blank">callmebot.com</a> para obtener tu API key</p>
+                      </div>
+                    </div>
+                    <div class="example-card">
+                      <div class="example-title">
+                        <span class="example-badge">Telegram</span>
+                        Bot API
+                      </div>
+                      <div class="example-body">
+                        <p>URL: <code>https://api.telegram.org/bot&lt;TOKEN&gt;/sendMessage</code></p>
+                        <p>Método: <code>POST</code></p>
+                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
+                        <p>Body: <code>{"chat_id": "TU_CHAT_ID", "text": "✅ {{torrent_name}} → {{status}}"}</code></p>
+                      </div>
+                    </div>
+                    <div class="example-card">
+                      <div class="example-title">
+                        <span class="example-badge">Discord</span>
+                        Webhook de canal
+                      </div>
+                      <div class="example-body">
+                        <p>URL: Webhook URL del canal de Discord</p>
+                        <p>Método: <code>POST</code></p>
+                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
+                        <p>Body: <code>{"content": "**TransferV** {{status}}: `{{torrent_name}}` → `{{destination_path}}`"}</code></p>
+                      </div>
+                    </div>
+                    <div class="example-card">
+                      <div class="example-title">
+                        <span class="example-badge">Slack</span>
+                        Incoming Webhook
+                      </div>
+                      <div class="example-body">
+                        <p>URL: Incoming Webhook URL de Slack</p>
+                        <p>Método: <code>POST</code></p>
+                        <p>Headers: <code>{"Content-Type": "application/json"}</code></p>
+                        <p>Body: <code>{"text": ":package: *{{torrent_name}}* — {{status}}"}</code></p>
+                      </div>
+                    </div>
+                    <div class="example-card">
+                      <div class="example-title">
+                        <span class="example-badge">Ntfy.sh</span>
+                        Push notifications
+                      </div>
+                      <div class="example-body">
+                        <p>URL: <code>https://ntfy.sh/TU_CANAL</code></p>
+                        <p>Método: <code>POST</code></p>
+                        <p>Headers: <code>{"Title": "TransferV", "Priority": "default"}</code></p>
+                        <p>Body: <code>{{torrent_name}} — {{status}}</code></p>
+                      </div>
+                    </div>
+                  </div>
+                </details>
+              </div>
+
+              <div class="settings-grid">
+                <div class="field field-wide">
+                  <label for="s-wh-url">URL del webhook</label>
+                  <input name="webhook.url" id="s-wh-url" placeholder="https://api.telegram.org/bot.../sendMessage" />
+                </div>
+                <div class="field">
+                  <label for="s-wh-method">Método HTTP</label>
+                  <select name="webhook.method" id="s-wh-method">
+                    <option value="POST">POST</option>
+                    <option value="GET">GET</option>
+                    <option value="PUT">PUT</option>
+                  </select>
+                </div>
+                <div class="field field-wide">
+                  <label for="s-wh-headers">Headers (JSON)</label>
+                  <textarea name="webhook.headers_json" id="s-wh-headers" rows="3" placeholder='{"Content-Type": "application/json"}'></textarea>
+                </div>
+                <div class="field field-wide">
+                  <label for="s-wh-body">Body template</label>
+                  <textarea name="webhook.body_template" id="s-wh-body" rows="4" placeholder='{"text": "TransferV: {{status}} — {{torrent_name}}"}'></textarea>
+                </div>
+              </div>
+            </div>
+
+          </form>
+        </section>
+      </div>
+    </div>
+
     <script src="/static/app.js"></script>
   </body>
 </html>

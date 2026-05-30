@@ -91,7 +91,7 @@ def row_to_transfer(row: sqlite3.Row) -> TransferRecord:
     return TransferRecord(**data)
 
 
-def list_transfers(limit: int = 100) -> list[TransferRecord]:
+def list_transfers(limit: int = 200) -> list[TransferRecord]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM transfers ORDER BY id DESC LIMIT ?",
@@ -164,6 +164,15 @@ def update_transfer(
         )
 
 
+def delete_transfer(transfer_id: int) -> bool:
+    with connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM transfers WHERE id = ?",
+            (transfer_id,),
+        )
+    return cursor.rowcount > 0
+
+
 def next_pending_transfer() -> TransferRecord | None:
     with connect() as conn:
         row = conn.execute(
@@ -181,4 +190,3 @@ def get_transfer(transfer_id: int) -> TransferRecord | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM transfers WHERE id = ?", (transfer_id,)).fetchone()
     return row_to_transfer(row) if row else None
-

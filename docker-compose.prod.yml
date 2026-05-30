@@ -11,4 +11,3 @@ services:
       # Mount keys here if you want to reference them in settings.
       # - ~/.ssh:/keys:ro
     restart: unless-stopped
-

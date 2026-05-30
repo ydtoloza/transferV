@@ -50,6 +50,7 @@ class QbitClient:
                 self.settings.qbit.downloads_path,
                 self.settings.qbit.host_downloads_path,
             )
+            tracker = extract_tracker(raw.get("tracker", "") or raw.get("trackers_count", ""))
             items.append(
                 Torrent(
                     hash=torrent_hash,
@@ -61,8 +62,12 @@ class QbitClient:
                     content_path=source_path,
                     files=files,
                     queued=torrent_hash in queued_hashes,
+                    added_on=raw.get("added_on", 0),
+                    tracker=tracker,
                 )
             )
+        # Sort by added_on descending (newest first)
+        items.sort(key=lambda t: t.added_on, reverse=True)
         return items
 
     async def torrent(self, torrent_hash: str) -> Torrent | None:
@@ -81,6 +86,7 @@ class QbitClient:
             self.settings.qbit.downloads_path,
             self.settings.qbit.host_downloads_path,
         )
+        tracker = extract_tracker(raw.get("tracker", "") or "")
         return Torrent(
             hash=raw.get("hash", ""),
             name=raw.get("name", ""),
@@ -90,6 +96,8 @@ class QbitClient:
             save_path=raw.get("save_path", ""),
             content_path=source_path,
             files=files,
+            added_on=raw.get("added_on", 0),
+            tracker=tracker,
         )
 
     async def files(self, torrent_hash: str) -> list[TorrentFile]:
@@ -106,6 +114,27 @@ class QbitClient:
             )
             for item in response.json()
         ]
+
+
+def extract_tracker(tracker_url: str) -> str:
+    """Extract a clean tracker domain name from a tracker URL."""
+    if not tracker_url or not isinstance(tracker_url, str):
+        return ""
+    try:
+        # Remove protocol
+        url = tracker_url.strip()
+        for prefix in ("https://", "http://", "udp://"):
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+        # Get domain only
+        domain = url.split("/")[0].split(":")[0]
+        # Remove www.
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain
+    except Exception:
+        return ""
 
 
 def infer_source_path(raw: dict, files: list[TorrentFile]) -> str:
@@ -128,7 +157,7 @@ def map_source_path(path: str, qbit_path: str, host_path: str) -> str:
     if path == normalized_qbit:
         return normalized_host
     if path.startswith(normalized_qbit + "/"):
-        return normalized_host + path[len(normalized_qbit) :]
+        return normalized_host + path[len(normalized_qbit):]
     return path
 
 
