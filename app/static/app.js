@@ -4,6 +4,7 @@ const state = {
   transfers: [],
   activeTrackers: new Set(),
   activeStateFilter: '',
+  selectedHashes: new Set(),
   lastRefreshAt: null,
   nextCycleSeconds: 15,
 };
@@ -218,7 +219,7 @@ function renderTorrents() {
     <table class="torrent-table">
       <thead>
         <tr>
-          <th class="col-check"><div class="row-check"></div></th>
+          <th class="col-check"><div class="row-check" id="selectAllCheck"></div></th>
           <th class="col-priority">#</th>
           <th class="col-icon"></th>
           <th class="col-name">Nombre</th>
@@ -237,9 +238,10 @@ function renderTorrents() {
           const { label, cls } = stateInfo(t.state);
           const isComplete = t.progress >= 1;
           const queued = t.queued;
+          const isSelected = state.selectedHashes.has(t.hash);
           return `
-            <tr data-hash="${escHtml(t.hash)}" title="${escHtml(t.content_path || t.save_path)}">
-              <td><div class="row-check"></div></td>
+            <tr data-hash="${escHtml(t.hash)}" class="${isSelected ? 'selected' : ''}" title="${escHtml(t.content_path || t.save_path)}">
+              <td><div class="row-check ${isSelected ? 'active' : ''}"></div></td>
               <td>${index + 1}</td>
               <td>
                 ${t.tracker 
@@ -272,6 +274,56 @@ function renderTorrents() {
         }).join('')}
       </tbody>
     </table>`;
+
+  const selectAll = $('#selectAllCheck');
+  if (selectAll) {
+    const allFilteredSelected = list.length > 0 && list.every(t => state.selectedHashes.has(t.hash));
+    selectAll.classList.toggle('active', allFilteredSelected);
+  }
+  updateActionBar();
+}
+
+function updateActionBar() {
+  const bar = $('#bulkActionBar');
+  const countLabel = $('#bulkCount');
+  if (!bar || !countLabel) return;
+  
+  if (state.selectedHashes.size > 0) {
+    bar.classList.add('visible');
+    countLabel.textContent = state.selectedHashes.size;
+  } else {
+    bar.classList.remove('visible');
+  }
+}
+
+async function bulkTransfer() {
+  if (state.selectedHashes.size === 0) return;
+  const hashes = Array.from(state.selectedHashes);
+  let successCount = 0;
+  
+  toast('Iniciando transferencia múltiple...', `${hashes.length} elementos`, 'info');
+  for (const hash of hashes) {
+    const torrent = state.torrents.find(t => t.hash === hash);
+    if (!torrent || torrent.queued) continue;
+    try {
+      await api('/api/transfers', {
+        method: 'POST',
+        body: JSON.stringify({
+          torrent_hash: torrent.hash,
+          torrent_name: torrent.name,
+          source_path: torrent.content_path,
+          size: torrent.size,
+        }),
+      });
+      successCount++;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  
+  state.selectedHashes.clear();
+  toast('Proceso completado', `Agregados: ${successCount}`, 'ok');
+  await Promise.all([loadTorrents(), loadTransfers()]);
 }
 
 // ── Render queue ───────────────────────────────────────────
@@ -515,6 +567,15 @@ function bindEvents() {
     }
   });
 
+  $('#btnBulkClear')?.addEventListener('click', () => {
+    state.selectedHashes.clear();
+    renderTorrents();
+  });
+
+  $('#btnBulkTransfer')?.addEventListener('click', async () => {
+    await bulkTransfer();
+  });
+
   // Filters
   $('#torrentSearch')?.addEventListener('input', renderTorrents);
   $('#logsFilter')?.addEventListener('change', renderLogs);
@@ -541,6 +602,34 @@ function bindEvents() {
       }
       updateTrackerFilter();
       renderTorrents();
+      return;
+    }
+
+    const selectAllCheck = e.target.closest('#selectAllCheck');
+    if (selectAllCheck) {
+      const list = getFilteredTorrents();
+      const allSelected = list.length > 0 && list.every(t => state.selectedHashes.has(t.hash));
+      if (allSelected) {
+        list.forEach(t => state.selectedHashes.delete(t.hash));
+      } else {
+        list.forEach(t => state.selectedHashes.add(t.hash));
+      }
+      renderTorrents();
+      return;
+    }
+
+    const rowCheck = e.target.closest('.row-check');
+    if (rowCheck) {
+      const tr = rowCheck.closest('tr');
+      if (tr && tr.dataset.hash) {
+        const hash = tr.dataset.hash;
+        if (state.selectedHashes.has(hash)) {
+          state.selectedHashes.delete(hash);
+        } else {
+          state.selectedHashes.add(hash);
+        }
+        renderTorrents();
+      }
       return;
     }
 
