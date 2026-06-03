@@ -3,6 +3,9 @@ const state = {
   torrents: [],
   transfers: [],
   activeTrackers: new Set(),
+  activeStateFilter: '',
+  lastRefreshAt: null,
+  nextCycleSeconds: 15,
 };
 
 // ── Utils ──────────────────────────────────────────────────
@@ -135,16 +138,40 @@ function readForm() {
 // ── Render torrents ────────────────────────────────────────
 function getFilteredTorrents() {
   const search = $('#torrentSearch')?.value.toLowerCase() || '';
-  const stateF = $('#stateFilter')?.value || '';
+  const stateF = state.activeStateFilter || '';
 
   return state.torrents.filter(t => {
     if (search && !t.name.toLowerCase().includes(search)) return false;
     if (state.activeTrackers.size > 0 && !state.activeTrackers.has(t.tracker)) return false;
     if (stateF) {
-      const { cls } = stateInfo(t.state);
-      if (!cls.includes(stateF)) return false;
+      if (torrentGroup(t) !== stateF) return false;
     }
     return true;
+  });
+}
+
+function torrentGroup(torrent) {
+  const { cls } = stateInfo(torrent.state);
+  if (cls.includes('seeding')) return 'seeding';
+  if (cls.includes('downloading')) return 'downloading';
+  if (cls.includes('paused')) return 'paused';
+  if (cls.includes('queued') || cls.includes('checking')) return 'queued';
+  if (cls.includes('error')) return 'error';
+  return 'unknown';
+}
+
+function updateStateFilterCounts() {
+  const counts = { all: state.torrents.length, seeding: 0, downloading: 0, paused: 0, queued: 0, error: 0 };
+  state.torrents.forEach(t => {
+    const group = torrentGroup(t);
+    if (counts[group] !== undefined) counts[group] += 1;
+  });
+  Object.entries(counts).forEach(([key, value]) => {
+    const el = $(`#count-${key}`);
+    if (el) el.textContent = value;
+  });
+  $$('.filter-row').forEach(row => {
+    row.classList.toggle('active', row.dataset.stateFilter === state.activeStateFilter);
   });
 }
 
@@ -157,9 +184,14 @@ function updateTrackerFilter() {
   const currentActive = new Set([...state.activeTrackers].filter(t => trackers.includes(t)));
   state.activeTrackers = currentActive;
 
-  let html = `<button class="tracker-pill ${state.activeTrackers.size === 0 ? 'active' : ''}" data-tracker="">Todos</button>`;
+  const trackerCounts = state.torrents.reduce((acc, torrent) => {
+    if (torrent.tracker) acc[torrent.tracker] = (acc[torrent.tracker] || 0) + 1;
+    return acc;
+  }, {});
+
+  let html = `<button class="tracker-pill ${state.activeTrackers.size === 0 ? 'active' : ''}" data-tracker=""><span class="check-box"></span><span>Todos</span><b>${state.torrents.length}</b></button>`;
   html += trackers.map(t => 
-    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}">${escHtml(t)}</button>`
+    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}"><span class="check-box"></span><span>${escHtml(t)}</span><b>${trackerCounts[t] || 0}</b></button>`
   ).join('');
   
   container.innerHTML = html;
@@ -167,6 +199,7 @@ function updateTrackerFilter() {
 
 function renderTorrents() {
   const list = getFilteredTorrents();
+  updateStateFilterCounts();
   $('#torrentCount').textContent = `${list.length} de ${state.torrents.length} torrents`;
 
   // Badge
@@ -181,35 +214,59 @@ function renderTorrents() {
     return;
   }
 
-  el.innerHTML = list.map(t => {
-    const { label, cls } = stateInfo(t.state);
-    const isComplete = t.progress >= 1;
-    const queued = t.queued;
-    return `
-    <article class="item" data-hash="${escHtml(t.hash)}">
-      <div class="item-header">
-        <div class="item-title">${escHtml(t.name)}</div>
-        <div class="item-actions">
-          ${t.tracker ? `<span class="badge badge-tracker">${escHtml(t.tracker)}</span>` : ''}
-          <span class="badge ${cls}">${label}</span>
-          <span class="badge badge-default">${bytes(t.size)}</span>
-          ${t.transfer_status === 'completed'
-            ? `<span class="badge badge-ok"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Transferido</span>`
-            : `<button class="btn btn-queue" data-transfer="${escHtml(t.hash)}" ${queued?'disabled':''}>
-                ${queued ? 'En cola' : 'Transferir'}
-              </button>`
-          }
-        </div>
-      </div>
-      <div class="item-meta">
-        <span class="badge badge-default">${pct(t.progress)}</span>
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill ${isComplete?'complete':''}" style="width:${pct(t.progress)}"></div>
-      </div>
-      <div class="item-path">${escHtml(t.content_path || t.save_path)}</div>
-    </article>`;
-  }).join('');
+  el.innerHTML = `
+    <table class="torrent-table">
+      <thead>
+        <tr>
+          <th class="col-check"><div class="row-check"></div></th>
+          <th class="col-priority">#</th>
+          <th class="col-icon"></th>
+          <th class="col-name">Nombre</th>
+          <th class="col-size">Tamaño</th>
+          <th class="col-progress">Progreso</th>
+          <th class="col-action"></th>
+          <th class="col-status">Estado</th>
+          <th class="col-seeds">Seeds</th>
+          <th class="col-peers">Peers</th>
+          <th class="col-speed">Bajada</th>
+          <th class="col-speed">Subida</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map((t, index) => {
+          const { label, cls } = stateInfo(t.state);
+          const isComplete = t.progress >= 1;
+          const queued = t.queued;
+          return `
+            <tr data-hash="${escHtml(t.hash)}" title="${escHtml(t.content_path || t.save_path)}">
+              <td><div class="row-check"></div></td>
+              <td>${index + 1}</td>
+              <td><span class="torrent-icon">↓</span></td>
+              <td><span class="name-cell">${escHtml(t.name)}</span></td>
+              <td>${bytes(t.size)}</td>
+              <td>
+                <div class="progress-cell">
+                  <div class="progress-bar"><div class="progress-fill ${isComplete?'complete':''}" style="width:${pct(t.progress)}"></div></div>
+                  <span class="progress-label">${Math.round((t.progress || 0) * 100)}</span>
+                </div>
+              </td>
+              <td>
+                ${t.transfer_status === 'completed'
+                  ? `<span class="badge badge-ok" title="Transferido">OK</span>`
+                  : `<button class="table-action" data-transfer="${escHtml(t.hash)}" ${queued?'disabled':''} title="${queued ? 'Ya está en cola' : 'Transferir'}">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
+                    </button>`
+                }
+              </td>
+              <td><span class="badge ${cls}">${label}</span></td>
+              <td>0 (0)</td>
+              <td>0 (0)</td>
+              <td>-</td>
+              <td>-</td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ── Render queue ───────────────────────────────────────────
@@ -217,6 +274,8 @@ function renderQueue() {
   const active = state.transfers.filter(t =>
     ['pending','waiting','transferring'].includes(t.status)
   );
+
+  renderSidebarStats();
 
   const badge = $('#navBadgeQueue');
   badge.textContent = active.length;
@@ -258,6 +317,26 @@ function renderQueue() {
 }
 
 // ── Render logs ────────────────────────────────────────────
+function renderSidebarStats() {
+  const counts = {
+    pending: state.transfers.filter(t => ['pending','waiting'].includes(t.status)).length,
+    transferring: state.transfers.filter(t => t.status === 'transferring').length,
+    completed: state.transfers.filter(t => t.status === 'completed').length,
+    failed: state.transfers.filter(t => t.status === 'failed').length,
+  };
+
+  Object.entries(counts).forEach(([key, value]) => {
+    const el = $(`#metric-${key}`);
+    if (el) el.textContent = value;
+  });
+
+  const last = $('#activity-last-refresh');
+  if (last) last.textContent = state.lastRefreshAt ? relTime(state.lastRefreshAt.toISOString()) : 'Ahora';
+
+  const next = $('#activity-next-cycle');
+  if (next) next.textContent = `${state.nextCycleSeconds} s`;
+}
+
 function renderLogs() {
   const filterVal = $('#logsFilter')?.value || '';
   const done = state.transfers.filter(t =>
@@ -336,12 +415,15 @@ async function restartSsh(target) {
 
 async function loadTorrents() {
   state.torrents = await api('/api/torrents');
+  state.lastRefreshAt = new Date();
   updateTrackerFilter();
   renderTorrents();
+  renderSidebarStats();
 }
 
 async function loadTransfers() {
   state.transfers = await api('/api/transfers');
+  state.lastRefreshAt = new Date();
   renderQueue();
   renderLogs();
 }
@@ -430,7 +512,6 @@ function bindEvents() {
 
   // Filters
   $('#torrentSearch')?.addEventListener('input', renderTorrents);
-  $('#stateFilter')?.addEventListener('change', renderTorrents);
   $('#logsFilter')?.addEventListener('change', renderLogs);
 
   // Delegation: transfer, delete, log toggle, tracker pills, restart ssh
@@ -454,6 +535,13 @@ function bindEvents() {
         }
       }
       updateTrackerFilter();
+      renderTorrents();
+      return;
+    }
+
+    const stateFilterBtn = e.target.closest('[data-state-filter]');
+    if (stateFilterBtn) {
+      state.activeStateFilter = stateFilterBtn.dataset.stateFilter || '';
       renderTorrents();
       return;
     }
@@ -486,9 +574,14 @@ applyTheme(savedTheme);
 bindEvents();
 refreshAll();
 setInterval(() => {
+  state.nextCycleSeconds = 15;
   loadTorrents().catch(() => {});
   loadTransfers().catch(() => {});
 }, 15000);
+setInterval(() => {
+  state.nextCycleSeconds = Math.max(0, state.nextCycleSeconds - 1);
+  renderSidebarStats();
+}, 1000);
 setInterval(() => {
   loadStatus().catch(() => {});
 }, 30000);

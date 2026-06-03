@@ -11,8 +11,6 @@
   </head>
   <body>
     <div class="layout">
-
-      <!-- Sidebar -->
       <aside class="sidebar">
         <div class="sidebar-header">
           <span class="sidebar-logo">
@@ -25,121 +23,137 @@
 
         <nav class="sidebar-nav">
           <button class="nav-item active" data-panel="torrents" id="nav-torrents">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            Torrents
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            <span class="nav-label">Torrents</span>
             <span class="nav-badge" id="navBadgeTorrents"></span>
           </button>
           <button class="nav-item" data-panel="queue" id="nav-queue">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-            Cola
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            <span class="nav-label">Cola</span>
             <span class="nav-badge" id="navBadgeQueue"></span>
           </button>
           <button class="nav-item" data-panel="logs" id="nav-logs">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-            Logs
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span class="nav-label">Logs</span>
           </button>
           <button class="nav-item" data-panel="settings" id="nav-settings">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.41 14.14M4.93 4.93a10 10 0 0 0-1.41 14.14"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-            Ajustes
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.41 14.14M4.93 4.93a10 10 0 0 0-1.41 14.14"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></svg>
+            <span class="nav-label">Ajustes</span>
           </button>
         </nav>
-        
+
+        <div class="sidebar-section">
+          <div class="sidebar-section-title">Cola</div>
+          <div class="sidebar-metric">
+            <span>Pendientes</span>
+            <strong id="metric-pending">0</strong>
+          </div>
+          <div class="sidebar-metric">
+            <span>Transfiriendo</span>
+            <strong id="metric-transferring">0</strong>
+          </div>
+          <div class="sidebar-metric">
+            <span>Completadas</span>
+            <strong id="metric-completed">0</strong>
+          </div>
+          <div class="sidebar-metric">
+            <span>Errores</span>
+            <strong id="metric-failed">0</strong>
+          </div>
+
+          <div class="sidebar-section-title sidebar-section-title-spaced">Actividad</div>
+          <div class="activity-card">
+            <div>
+              <span>Última revisión</span>
+              <strong id="activity-last-refresh">Ahora</strong>
+            </div>
+            <div>
+              <span>Próximo ciclo</span>
+              <strong id="activity-next-cycle">15 s</strong>
+            </div>
+          </div>
+        </div>
+
         <div class="sidebar-status">
           <div class="status-item">
-            <span class="status-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-              qBittorrent
-            </span>
+            <span class="status-label">qBittorrent</span>
             <div class="status-dot" id="dot-qbit"></div>
           </div>
           <div class="status-item">
-            <span class="status-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-              Origen
-            </span>
+            <span class="status-label">Origen</span>
             <div class="status-actions">
               <button class="status-action" data-restart="vps" title="Reiniciar SSH origen"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
               <div class="status-dot" id="dot-vps"></div>
             </div>
           </div>
           <div class="status-item">
-            <span class="status-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-              Destino
-            </span>
+            <span class="status-label">Destino</span>
             <div class="status-actions">
               <button class="status-action" data-restart="destination" title="Reiniciar SSH destino"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
               <div class="status-dot" id="dot-destination"></div>
             </div>
           </div>
         </div>
-
-        <div class="sidebar-footer">
-          <button class="nav-item" id="themeToggleBtn" title="Cambiar tema">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" id="themeIcon">
-              <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-            </svg>
-            Tema
-          </button>
-        </div>
       </aside>
 
-      <!-- Main content -->
-      <div class="main">
+      <main class="main">
+        <header class="app-toolbar">
+          <div class="toolbar-left">
+            <button class="icon-btn" title="Menu"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
+            <button class="icon-btn" id="refreshBtn" title="Actualizar"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+            <button class="icon-btn" id="runOnceBtn" title="Procesar ahora"><svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"/></svg></button>
+          </div>
+          <div class="toolbar-search">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <input type="search" id="torrentSearch" placeholder="Buscar torrents..." />
+          </div>
+          <button class="icon-btn" id="themeToggleBtn" title="Cambiar tema">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+          </button>
+        </header>
 
-        <!-- Toast container -->
         <div id="toastContainer" class="toast-container"></div>
 
-        <!-- Torrents Panel -->
         <section id="panel-torrents" class="panel active">
-          <div class="panel-topbar">
-            <div>
-              <h2>Torrents</h2>
-              <p class="panel-sub" id="torrentCount">Cargando...</p>
-            </div>
-            <div class="panel-actions">
-              <div class="filter-group">
-                <input type="search" id="torrentSearch" placeholder="Buscar..." class="filter-input" />
-                <select id="stateFilter" class="filter-select">
-                  <option value="">Todos los estados</option>
-                  <option value="seeding">Seeding</option>
-                  <option value="downloading">Descargando</option>
-                  <option value="paused">Pausado</option>
-                  <option value="checking">Verificando</option>
-                  <option value="queued">En cola</option>
-                  <option value="error">Error</option>
-                </select>
+          <div class="torrent-workspace">
+            <aside class="filter-panel">
+              <div class="filter-title">Filtros</div>
+              <div class="filter-card">
+                <div class="filter-card-head"><strong>Estado</strong></div>
+                <button class="filter-row active" data-state-filter=""><span class="check-box"></span><span>Todos</span><b id="count-all">0</b></button>
+                <button class="filter-row" data-state-filter="seeding"><span class="check-box"></span><span>Seeding</span><b id="count-seeding">0</b></button>
+                <button class="filter-row" data-state-filter="downloading"><span class="check-box"></span><span>Descargando</span><b id="count-downloading">0</b></button>
+                <button class="filter-row" data-state-filter="paused"><span class="check-box"></span><span>Pausado</span><b id="count-paused">0</b></button>
+                <button class="filter-row" data-state-filter="queued"><span class="check-box"></span><span>En cola</span><b id="count-queued">0</b></button>
+                <button class="filter-row" data-state-filter="error"><span class="check-box"></span><span>Error</span><b id="count-error">0</b></button>
               </div>
-              <button id="refreshBtn" class="btn btn-ghost">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                Actualizar
-              </button>
+              <div class="filter-card">
+                <div class="filter-card-head"><strong>Trackers</strong></div>
+                <div id="trackerFilters" class="tracker-filters"></div>
+              </div>
+            </aside>
+            <div class="table-shell">
+              <div id="torrentList" class="torrent-table-wrap"></div>
+              <footer class="table-statusbar">
+                <span id="torrentCount">Cargando...</span>
+                <span>0 B/s</span>
+                <span>0 B/s</span>
+                <span>Tabla</span>
+              </footer>
             </div>
           </div>
-          <div class="tracker-filters-wrapper">
-            <div id="trackerFilters" class="tracker-filters"></div>
-          </div>
-          <div id="torrentList" class="list"></div>
         </section>
 
-        <!-- Queue Panel -->
         <section id="panel-queue" class="panel">
           <div class="panel-topbar">
             <div>
               <h2>Cola de transferencias</h2>
               <p class="panel-sub">Transferencias activas y pendientes</p>
             </div>
-            <div class="panel-actions">
-              <button id="runOnceBtn" class="btn btn-ghost">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                Procesar ahora
-              </button>
-            </div>
           </div>
           <div id="transferList" class="list"></div>
         </section>
 
-        <!-- Logs Panel -->
         <section id="panel-logs" class="panel">
           <div class="panel-topbar">
             <div>
@@ -158,7 +172,6 @@
           <div id="logsList" class="list logs-list"></div>
         </section>
 
-        <!-- Settings Panel -->
         <section id="panel-settings" class="panel">
           <div class="panel-topbar">
             <div>
@@ -167,163 +180,81 @@
             </div>
             <div class="panel-actions">
               <button id="saveBtn" class="btn btn-primary">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13"/><polyline points="7 3 7 8 15 8"/></svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
                 Guardar
               </button>
             </div>
           </div>
 
           <form id="settingsForm" class="settings-layout">
-
-            <!-- General -->
             <div class="settings-section">
-              <div class="settings-section-header">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.41 14.14"/></svg>
-                <h3>General</h3>
-              </div>
+              <div class="settings-section-header"><h3>General</h3></div>
               <div class="settings-grid">
                 <div class="field">
                   <label for="s-mode">Modo de transferencia</label>
-                  <p class="field-hint">Define desde dónde se ejecuta el rsync</p>
+                  <p class="field-hint">Define desde dónde se ejecuta rsync</p>
                   <select name="transfer_mode" id="s-mode">
-                    <option value="local_pull">Local pull — este servidor descarga desde el origen</option>
-                    <option value="orchestrated_pull">Orchestrated pull — el destino descarga desde el origen (recomendado)</option>
-                    <option value="remote_push">Remote push — el origen empuja hacia el destino</option>
+                    <option value="local_pull">Local pull - este servidor descarga desde el origen</option>
+                    <option value="orchestrated_pull">Orchestrated pull - el destino descarga desde el origen</option>
+                    <option value="remote_push">Remote push - el origen empuja hacia el destino</option>
                   </select>
                 </div>
                 <div class="field">
                   <label for="s-interval">Intervalo de revisión (segundos)</label>
-                  <p class="field-hint">Cada cuántos segundos se revisa la cola (10–3600)</p>
+                  <p class="field-hint">Cada cuántos segundos se revisa la cola (10-3600)</p>
                   <input name="poll_interval_seconds" id="s-interval" type="number" min="10" max="3600" />
                 </div>
                 <div class="field">
                   <label for="s-dest">Ruta de destino por defecto</label>
-                  <p class="field-hint">Carpeta en el servidor destino donde se guardarán los archivos</p>
                   <input name="destination_path" id="s-dest" placeholder="/mnt/storage/downloads" />
                 </div>
                 <div class="field">
                   <label for="s-rsync">Argumentos de rsync</label>
-                  <p class="field-hint">Opciones adicionales para rsync. Usa <code>--protect-args</code> para rutas con espacios</p>
                   <input name="rsync_args" id="s-rsync" />
                 </div>
               </div>
             </div>
 
-            <!-- qBittorrent -->
             <div class="settings-section">
-              <div class="settings-section-header">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                <h3>qBittorrent</h3>
-              </div>
+              <div class="settings-section-header"><h3>qBittorrent</h3></div>
               <div class="settings-grid">
                 <div class="field field-wide">
                   <label for="s-qbit-url">URL de la interfaz web</label>
-                  <p class="field-hint">Dirección completa de qBittorrent (incluye puerto)</p>
                   <input name="qbit.url" id="s-qbit-url" placeholder="http://192.168.1.100:8080" />
                 </div>
-                <div class="field">
-                  <label for="s-qbit-user">Usuario</label>
-                  <input name="qbit.username" id="s-qbit-user" />
-                </div>
-                <div class="field">
-                  <label for="s-qbit-pass">Contraseña</label>
-                  <input name="qbit.password" id="s-qbit-pass" type="password" />
-                </div>
-                <div class="field">
-                  <label for="s-qbit-dl">Ruta de descargas (dentro de qBittorrent)</label>
-                  <p class="field-hint">Ruta como la ve qBittorrent internamente</p>
-                  <input name="qbit.downloads_path" id="s-qbit-dl" placeholder="/downloads" />
-                </div>
-                <div class="field">
-                  <label for="s-qbit-host-dl">Ruta real de descargas (en el servidor)</label>
-                  <p class="field-hint">Ruta real en el sistema de archivos del servidor origen (para SSH)</p>
-                  <input name="qbit.host_downloads_path" id="s-qbit-host-dl" placeholder="/home/user/media/downloads" />
-                </div>
+                <div class="field"><label for="s-qbit-user">Usuario</label><input name="qbit.username" id="s-qbit-user" /></div>
+                <div class="field"><label for="s-qbit-pass">Contraseña</label><input name="qbit.password" id="s-qbit-pass" type="password" /></div>
+                <div class="field"><label for="s-qbit-dl">Ruta de descargas en qBittorrent</label><input name="qbit.downloads_path" id="s-qbit-dl" placeholder="/downloads" /></div>
+                <div class="field"><label for="s-qbit-host-dl">Ruta real de descargas</label><input name="qbit.host_downloads_path" id="s-qbit-host-dl" placeholder="/home/user/media/downloads" /></div>
               </div>
             </div>
 
-            <!-- SSH Origen -->
             <div class="settings-section">
-              <div class="settings-section-header">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-                <h3>SSH — Servidor origen (donde está qBittorrent)</h3>
-              </div>
+              <div class="settings-section-header"><h3>SSH - Servidor origen</h3></div>
               <div class="settings-grid">
-                <div class="field">
-                  <label for="s-vps-host">Host / IP</label>
-                  <input name="vps_ssh.host" id="s-vps-host" placeholder="192.168.1.100 o vps.example.com" />
-                </div>
-                <div class="field">
-                  <label for="s-vps-port">Puerto SSH</label>
-                  <input name="vps_ssh.port" id="s-vps-port" type="number" />
-                </div>
-                <div class="field">
-                  <label for="s-vps-user">Usuario SSH</label>
-                  <input name="vps_ssh.username" id="s-vps-user" />
-                </div>
-                <div class="field">
-                  <label for="s-vps-auth">Método de autenticación</label>
-                  <select name="vps_ssh.auth_method" id="s-vps-auth">
-                    <option value="key">Llave SSH (id_rsa / id_ed25519)</option>
-                    <option value="password">Contraseña</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="s-vps-key">Ruta a la llave privada</label>
-                  <p class="field-hint">Ruta dentro del contenedor (monta tu llave como volumen)</p>
-                  <input name="vps_ssh.key_path" id="s-vps-key" placeholder="/keys/id_ed25519" />
-                </div>
-                <div class="field">
-                  <label for="s-vps-pw">Contraseña SSH</label>
-                  <input name="vps_ssh.password" id="s-vps-pw" type="password" />
-                </div>
+                <div class="field"><label for="s-vps-host">Host / IP</label><input name="vps_ssh.host" id="s-vps-host" /></div>
+                <div class="field"><label for="s-vps-port">Puerto SSH</label><input name="vps_ssh.port" id="s-vps-port" type="number" /></div>
+                <div class="field"><label for="s-vps-user">Usuario SSH</label><input name="vps_ssh.username" id="s-vps-user" /></div>
+                <div class="field"><label for="s-vps-auth">Método de autenticación</label><select name="vps_ssh.auth_method" id="s-vps-auth"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select></div>
+                <div class="field"><label for="s-vps-key">Ruta a la llave privada</label><input name="vps_ssh.key_path" id="s-vps-key" placeholder="/keys/id_ed25519" /></div>
+                <div class="field"><label for="s-vps-pw">Contraseña SSH</label><input name="vps_ssh.password" id="s-vps-pw" type="password" /></div>
               </div>
             </div>
 
-            <!-- SSH Destino -->
             <div class="settings-section">
-              <div class="settings-section-header">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-                <h3>SSH — Servidor destino (donde van los archivos)</h3>
-              </div>
+              <div class="settings-section-header"><h3>SSH - Servidor destino</h3></div>
               <div class="settings-grid">
-                <div class="field">
-                  <label for="s-dst-host">Host / IP</label>
-                  <input name="destination_ssh.host" id="s-dst-host" placeholder="192.168.1.200 o media.example.com" />
-                </div>
-                <div class="field">
-                  <label for="s-dst-port">Puerto SSH</label>
-                  <input name="destination_ssh.port" id="s-dst-port" type="number" />
-                </div>
-                <div class="field">
-                  <label for="s-dst-user">Usuario SSH</label>
-                  <input name="destination_ssh.username" id="s-dst-user" />
-                </div>
-                <div class="field">
-                  <label for="s-dst-auth">Método de autenticación</label>
-                  <select name="destination_ssh.auth_method" id="s-dst-auth">
-                    <option value="key">Llave SSH</option>
-                    <option value="password">Contraseña</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label for="s-dst-key">Ruta a la llave privada</label>
-                  <input name="destination_ssh.key_path" id="s-dst-key" placeholder="/keys/id_ed25519" />
-                </div>
-                <div class="field">
-                  <label for="s-dst-pw">Contraseña SSH</label>
-                  <input name="destination_ssh.password" id="s-dst-pw" type="password" />
-                </div>
+                <div class="field"><label for="s-dst-host">Host / IP</label><input name="destination_ssh.host" id="s-dst-host" /></div>
+                <div class="field"><label for="s-dst-port">Puerto SSH</label><input name="destination_ssh.port" id="s-dst-port" type="number" /></div>
+                <div class="field"><label for="s-dst-user">Usuario SSH</label><input name="destination_ssh.username" id="s-dst-user" /></div>
+                <div class="field"><label for="s-dst-auth">Método de autenticación</label><select name="destination_ssh.auth_method" id="s-dst-auth"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select></div>
+                <div class="field"><label for="s-dst-key">Ruta a la llave privada</label><input name="destination_ssh.key_path" id="s-dst-key" placeholder="/keys/id_ed25519" /></div>
+                <div class="field"><label for="s-dst-pw">Contraseña SSH</label><input name="destination_ssh.password" id="s-dst-pw" type="password" /></div>
               </div>
             </div>
 
-            <!-- Webhook -->
             <div class="settings-section">
-              <div class="settings-section-header">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
-                <h3>Notificaciones (Webhook)</h3>
-              </div>
-
+              <div class="settings-section-header"><h3>Notificaciones</h3></div>
               <div class="webhook-toggle-row">
                 <label class="toggle-label">
                   <input name="webhook.enabled" id="s-wh-enabled" type="checkbox" class="toggle-input" />
@@ -331,34 +262,16 @@
                   Activar notificaciones por webhook
                 </label>
               </div>
-
               <div class="settings-grid">
-                <div class="field field-wide">
-                  <label for="s-wh-url">URL del webhook</label>
-                  <input name="webhook.url" id="s-wh-url" placeholder="https://api.telegram.org/bot.../sendMessage" />
-                </div>
-                <div class="field">
-                  <label for="s-wh-method">Método HTTP</label>
-                  <select name="webhook.method" id="s-wh-method">
-                    <option value="POST">POST</option>
-                    <option value="GET">GET</option>
-                    <option value="PUT">PUT</option>
-                  </select>
-                </div>
-                <div class="field field-wide">
-                  <label for="s-wh-headers">Headers (JSON)</label>
-                  <textarea name="webhook.headers_json" id="s-wh-headers" rows="3" placeholder='{"Content-Type": "application/json"}'></textarea>
-                </div>
-                <div class="field field-wide">
-                  <label for="s-wh-body">Body template</label>
-                  <textarea name="webhook.body_template" id="s-wh-body" rows="4" placeholder='{"text": "TransferV: {{status}} — {{torrent_name}}"}'></textarea>
-                </div>
+                <div class="field field-wide"><label for="s-wh-url">URL del webhook</label><input name="webhook.url" id="s-wh-url" /></div>
+                <div class="field"><label for="s-wh-method">Método HTTP</label><select name="webhook.method" id="s-wh-method"><option value="POST">POST</option><option value="GET">GET</option><option value="PUT">PUT</option></select></div>
+                <div class="field field-wide"><label for="s-wh-headers">Headers (JSON)</label><textarea name="webhook.headers_json" id="s-wh-headers" rows="3" placeholder='{"Content-Type": "application/json"}'></textarea></div>
+                <div class="field field-wide"><label for="s-wh-body">Body template</label><textarea name="webhook.body_template" id="s-wh-body" rows="4"></textarea></div>
               </div>
             </div>
-
           </form>
         </section>
-      </div>
+      </main>
     </div>
 
     <script src="/static/app.js"></script>
