@@ -191,7 +191,7 @@ function updateTrackerFilter() {
 
   let html = `<button class="tracker-pill ${state.activeTrackers.size === 0 ? 'active' : ''}" data-tracker=""><span class="check-box"></span><span>Todos</span><b>${state.torrents.length}</b></button>`;
   html += trackers.map(t => 
-    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}"><span class="check-box"></span><span>${escHtml(t)}</span><b>${trackerCounts[t] || 0}</b></button>`
+    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}"><span class="check-box"></span><img src="https://icons.duckduckgo.com/ip3/${escHtml(t)}.ico" class="tracker-icon-img" onerror="this.style.display='none'"><span>${escHtml(t)}</span><b>${trackerCounts[t] || 0}</b></button>`
   ).join('');
   
   container.innerHTML = html;
@@ -241,7 +241,12 @@ function renderTorrents() {
             <tr data-hash="${escHtml(t.hash)}" title="${escHtml(t.content_path || t.save_path)}">
               <td><div class="row-check"></div></td>
               <td>${index + 1}</td>
-              <td><span class="torrent-icon">↓</span></td>
+              <td>
+                ${t.tracker 
+                  ? `<img src="https://icons.duckduckgo.com/ip3/${escHtml(t.tracker)}.ico" class="tracker-icon-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-grid'"><span class="torrent-icon" style="display:none">↓</span>`
+                  : `<span class="torrent-icon">↓</span>`
+                }
+              </td>
               <td><span class="name-cell">${escHtml(t.name)}</span></td>
               <td>${bytes(t.size)}</td>
               <td>
