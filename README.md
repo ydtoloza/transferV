@@ -26,30 +26,47 @@ http://localhost:8080
 
 *The default data directory is mounted at `./data`.*
 
-## 📦 Production Deploy
+## 📦 Despliegue en VPS (Producción)
 
-GitHub Actions builds and publishes this image on every push to `main`:
-`ghcr.io/ydtoloza/transferv:latest`
+TransferV se distribuye como una imagen Docker (`ghcr.io/ydtoloza/transferv`). Para tu servidor VPS, es recomendable usar **versiones específicas** (ej. `v1.0.0`) en lugar de `latest`, para tener mayor estabilidad.
 
-On the deploy VPS:
+### 1. Clonar el repositorio
+Ingresa a tu VPS por SSH y descarga el proyecto:
 ```bash
-git clone git@github.com:ydtoloza/transferV.git
+git clone https://github.com/ydtoloza/transferV.git
 cd transferV
+```
+
+### 2. Configurar el Entorno y la Versión
+Crea tu archivo de configuración a partir del ejemplo:
+```bash
 cp .env.example .env
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
 ```
 
-For updates after the initial deploy, the app code comes from the image. Pull the image and recreate the container:
+Abre el archivo `.env` y especifica la versión que quieres desplegar en la variable `TRANSFERV_IMAGE` (puedes ver las versiones en la pestaña *Releases* de GitHub). 
+
+```env
+# Ejemplo de contenido en .env:
+TRANSFERV_IMAGE=ghcr.io/ydtoloza/transferv:v1.0.0
+TRANSFERV_PORT=8080
+TRANSFERV_DATA_DIR=./data
+```
+*(Nota: Si usas `:latest`, siempre obtendrás el código más reciente de la rama `main`, el cual podría incluir cambios experimentales).*
+
+### 3. Iniciar el Contenedor
+Descarga la imagen especificada y levanta el servicio en segundo plano:
 ```bash
 docker compose -f docker-compose.prod.yml pull
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-If the compose file itself changes, run `git pull` first. Alternatively, use the update script:
+### 4. ¿Cómo Actualizar?
+Cuando haya una nueva versión (ej. `v1.1.0`), simplemente cambia el número en tu archivo `.env` y vuelve a ejecutar:
 ```bash
-sh deploy/update.sh
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
 ```
+*(Si prefieres seguir usando `latest`, puedes actualizar rápidamente corriendo el script incluido: `sh deploy/update.sh`).*
 
 ## ⚙️ First Configuration
 
