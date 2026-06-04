@@ -243,7 +243,7 @@ function renderTorrents() {
           const isSelected = state.selectedHashes.has(t.hash);
           return `
             <tr data-hash="${escHtml(t.hash)}" class="${isSelected ? 'selected' : ''}" title="${escHtml(t.content_path || t.save_path)}">
-              <td><div class="row-check ${isSelected ? 'active' : ''}"></div></td>
+              <td>${t.transfer_status !== 'completed' && !queued ? `<div class="row-check ${isSelected ? 'active' : ''}"></div>` : ''}</td>
               <td>${index + 1}</td>
               <td>
                 ${t.tracker 
@@ -306,7 +306,7 @@ async function bulkTransfer() {
   toast('Iniciando transferencia múltiple...', `${hashes.length} elementos`, 'info');
   for (const hash of hashes) {
     const torrent = state.torrents.find(t => t.hash === hash);
-    if (!torrent || torrent.queued) continue;
+    if (!torrent || torrent.queued || torrent.transfer_status === 'completed') continue;
     try {
       await api('/api/transfers', {
         method: 'POST',
@@ -632,11 +632,14 @@ function bindEvents() {
     const selectAllCheck = e.target.closest('#selectAllCheck');
     if (selectAllCheck) {
       const list = getFilteredTorrents();
-      const allSelected = list.length > 0 && list.every(t => state.selectedHashes.has(t.hash));
+      // Only consider torrents that are NOT completed and NOT queued
+      const transferable = list.filter(t => t.transfer_status !== 'completed' && !t.queued);
+      const allSelected = transferable.length > 0 && transferable.every(t => state.selectedHashes.has(t.hash));
+      
       if (allSelected) {
-        list.forEach(t => state.selectedHashes.delete(t.hash));
+        transferable.forEach(t => state.selectedHashes.delete(t.hash));
       } else {
-        list.forEach(t => state.selectedHashes.add(t.hash));
+        transferable.forEach(t => state.selectedHashes.add(t.hash));
       }
       renderTorrents();
       return;
