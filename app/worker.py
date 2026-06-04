@@ -4,7 +4,7 @@ import asyncio
 from contextlib import suppress
 
 from app import db
-from app.models import TransferStatus
+from app.models import TransferStatus, TransferCreate, TransferRecord
 from app.qbit import QbitClient, is_complete
 from app.transfer import TransferError, run_transfer, verify_destination
 from app.webhook import send_webhook
@@ -38,8 +38,12 @@ class TransferWorker:
             except Exception:
                 pass
                 
-            # Verify missing files every 10 minutes
-            if time.time() - last_verify > 600:
+            # Verify files every 1 minute
+            if time.time() - last_verify > 60:
+                try:
+                    await verify_existing_torrents(settings)
+                except Exception:
+                    pass
                 try:
                     await verify_missing_transfers(settings)
                 except Exception:
@@ -55,6 +59,45 @@ async def verify_missing_transfers(settings) -> None:
         exists = await verify_destination(settings, t)
         if not exists:
             db.update_transfer(t.id, TransferStatus.missing, "El archivo ya no existe en el destino")
+
+async def verify_existing_torrents(settings) -> None:
+    try:
+        async with QbitClient(settings) as qbit:
+            torrents = await qbit.torrents()
+    except Exception:
+        return
+
+    transfers = db.list_transfers(limit=5000)
+    completed_hashes = {t.torrent_hash for t in transfers if t.status == TransferStatus.completed}
+    
+    unmarked = [t for t in torrents if is_complete(t) and t.hash not in completed_hashes]
+    if not unmarked:
+        return
+
+    for torrent in unmarked[:10]:
+        destination = settings.destination_path
+        # Dummy record to reuse verify_destination
+        dummy = TransferRecord(
+            id=0,
+            torrent_hash=torrent.hash,
+            torrent_name=torrent.name,
+            source_path=torrent.content_path,
+            destination_path=destination,
+            size=torrent.size,
+            status=TransferStatus.pending,
+            created_at="", updated_at=""
+        )
+        exists = await verify_destination(settings, dummy)
+        if exists:
+            item = TransferCreate(
+                torrent_hash=torrent.hash,
+                torrent_name=torrent.name,
+                source_path=torrent.content_path,
+                destination_path=destination,
+                size=torrent.size,
+            )
+            record = db.create_transfer(item, settings)
+            db.update_transfer(record.id, TransferStatus.completed, "Encontrado automáticamente en el destino", completed=True)
 
 
 _processing_lock = asyncio.Lock()
