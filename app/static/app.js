@@ -5,6 +5,8 @@ const state = {
   activeTrackers: new Set(),
   activeStateFilter: '',
   selectedHashes: new Set(),
+  logsPage: 1,
+  logsPerPage: 30,
   lastRefreshAt: null,
   nextCycleSeconds: 15,
 };
@@ -407,7 +409,14 @@ function renderLogs() {
     return;
   }
 
-  el.innerHTML = done.map(t => {
+  const totalPages = Math.ceil(done.length / state.logsPerPage);
+  if (state.logsPage > totalPages) state.logsPage = totalPages;
+  if (state.logsPage < 1) state.logsPage = 1;
+
+  const startIdx = (state.logsPage - 1) * state.logsPerPage;
+  const paginated = done.slice(startIdx, startIdx + state.logsPerPage);
+
+  let html = paginated.map(t => {
     const { label, cls } = transferStateInfo(t.status);
     const msgClean = (t.message || '').replace(/\d+\s+\d+%.*?\n?/g, '').trim();
     return `
@@ -432,6 +441,18 @@ function renderLogs() {
       ${msgClean ? `<div class="log-message" id="log-msg-${t.id}">${escHtml(msgClean)}</div>` : ''}
     </article>`;
   }).join('');
+
+  if (totalPages > 1) {
+    html += `
+      <div class="pagination">
+        <button class="btn btn-secondary" data-page="${state.logsPage - 1}" ${state.logsPage === 1 ? 'disabled' : ''}>Anterior</button>
+        <span class="page-info">Página ${state.logsPage} de ${totalPages}</span>
+        <button class="btn btn-secondary" data-page="${state.logsPage + 1}" ${state.logsPage === totalPages ? 'disabled' : ''}>Siguiente</button>
+      </div>
+    `;
+  }
+
+  el.innerHTML = html;
 }
 
 // ── Navigation ─────────────────────────────────────────────
@@ -578,7 +599,10 @@ function bindEvents() {
 
   // Filters
   $('#torrentSearch')?.addEventListener('input', renderTorrents);
-  $('#logsFilter')?.addEventListener('change', renderLogs);
+  $('#logsFilter')?.addEventListener('change', () => {
+    state.logsPage = 1;
+    renderLogs();
+  });
 
   // Delegation: transfer, delete, log toggle, tracker pills, restart ssh
   document.body.addEventListener('click', (e) => {
@@ -645,11 +669,13 @@ function bindEvents() {
       queueTransfer(transferBtn.dataset.transfer);
       return;
     }
+
     const deleteBtn = e.target.closest('[data-delete]');
     if (deleteBtn) {
       deleteTransfer(deleteBtn.dataset.delete);
       return;
     }
+
     const logToggle = e.target.closest('.log-toggle');
     if (logToggle) {
       const msg = $(`#log-msg-${logToggle.dataset.id}`);

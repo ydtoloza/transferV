@@ -796,6 +796,21 @@ button { cursor: pointer; }
   .toolbar-search { width: min(360px, 50vw); }
 }
 
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.pagination .page-info {
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
 @media (max-width: 760px) {
   body { overflow: auto; }
   .layout { grid-template-columns: 1fr; height: auto; min-height: 100dvh; }
