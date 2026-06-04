@@ -186,6 +186,47 @@ def next_pending_transfer() -> TransferRecord | None:
     return row_to_transfer(row) if row else None
 
 
+def upsert_completed_transfer(item: TransferCreate, settings: AppSettings) -> TransferRecord | None:
+    """Insert a transfer already in completed state. Skips if this hash is already completed."""
+    # Re-check inside the DB call to avoid race conditions
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT id FROM transfers WHERE torrent_hash = ? AND status = 'completed' LIMIT 1",
+            (item.torrent_hash,),
+        ).fetchone()
+        if existing:
+            return None
+
+        now = utc_now()
+        destination = item.destination_path or settings.destination_path
+        try:
+            conn.execute(
+                """
+                INSERT INTO transfers (
+                    torrent_hash, torrent_name, source_path, destination_path, size,
+                    status, message, created_at, updated_at, completed_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'completed', 'Encontrado automáticamente en el destino', ?, ?, ?)
+                """,
+                (
+                    item.torrent_hash,
+                    item.torrent_name,
+                    item.source_path,
+                    destination,
+                    item.size,
+                    now,
+                    now,
+                    now,
+                ),
+            )
+            row = conn.execute(
+                "SELECT * FROM transfers WHERE id = last_insert_rowid()"
+            ).fetchone()
+        except Exception:
+            return None
+    return row_to_transfer(row) if row else None
+
+
 def get_transfer(transfer_id: int) -> TransferRecord | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM transfers WHERE id = ?", (transfer_id,)).fetchone()

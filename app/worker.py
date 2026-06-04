@@ -74,30 +74,31 @@ async def verify_existing_torrents(settings) -> None:
     if not unmarked:
         return
 
-    for torrent in unmarked[:10]:
-        destination = settings.destination_path
-        # Dummy record to reuse verify_destination
-        dummy = TransferRecord(
-            id=0,
-            torrent_hash=torrent.hash,
-            torrent_name=torrent.name,
-            source_path=torrent.content_path,
-            destination_path=destination,
-            size=torrent.size,
-            status=TransferStatus.pending,
-            created_at="", updated_at=""
-        )
-        exists = await verify_destination(settings, dummy)
-        if exists:
-            item = TransferCreate(
+    for torrent in unmarked:
+        try:
+            destination = settings.destination_path
+            dummy = TransferRecord(
+                id=0,
                 torrent_hash=torrent.hash,
                 torrent_name=torrent.name,
                 source_path=torrent.content_path,
                 destination_path=destination,
                 size=torrent.size,
+                status=TransferStatus.pending,
+                created_at="", updated_at=""
             )
-            record = db.create_transfer(item, settings)
-            db.update_transfer(record.id, TransferStatus.completed, "Encontrado automáticamente en el destino", completed=True)
+            exists = await verify_destination(settings, dummy)
+            if exists:
+                item = TransferCreate(
+                    torrent_hash=torrent.hash,
+                    torrent_name=torrent.name,
+                    source_path=torrent.content_path,
+                    destination_path=destination,
+                    size=torrent.size,
+                )
+                db.upsert_completed_transfer(item, settings)
+        except Exception:
+            continue
 
 
 _processing_lock = asyncio.Lock()
