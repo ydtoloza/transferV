@@ -91,7 +91,7 @@ def row_to_transfer(row: sqlite3.Row) -> TransferRecord:
     return TransferRecord(**data)
 
 
-def list_transfers(limit: int = 200) -> list[TransferRecord]:
+def list_transfers(limit: int = 5000) -> list[TransferRecord]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM transfers ORDER BY id DESC LIMIT ?",

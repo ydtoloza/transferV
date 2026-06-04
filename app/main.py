@@ -49,7 +49,7 @@ async def get_torrents() -> list[dict]:
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
         
-    transfers = db.list_transfers(limit=1000)
+    transfers = db.list_transfers()
     completed_hashes = {t.torrent_hash for t in transfers if t.status.value == "completed"}
     
     result = []
