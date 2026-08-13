@@ -81,6 +81,14 @@ class Torrent(BaseModel):
     queued: bool = False
     added_on: int = 0
     tracker: str = ""
+    num_seeds: int = 0
+    num_complete: int = 0
+    num_leechs: int = 0
+    num_incomplete: int = 0
+    dlspeed: int = 0
+    upspeed: int = 0
+    eta: int = 0
+    ratio: float = 0
 
 
 class TransferCreate(BaseModel):

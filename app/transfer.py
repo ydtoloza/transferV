@@ -113,58 +113,84 @@ def build_transfer_command(settings: AppSettings, transfer: TransferRecord) -> l
     raise TransferError(f"Unsupported transfer mode: {settings.transfer_mode}")
 
 
+SPEED_RE = re.compile(r"([\d.]+)\s*([KMGT])?B/s")
+
+
+def ensure_progress_args(rsync_args: str) -> str:
+    """Guarantee flags needed to parse progress in real time over pipes."""
+    args = shlex.split(rsync_args)
+    for extra in ("--info=progress2", "--outbuf=Line"):
+        if extra not in args:
+            args.append(extra)
+    return " ".join(shlex.quote(a) for a in args)
+
+
+def parse_progress(text: str) -> tuple[int, str]:
+    """Extract percent and transfer speed from an rsync progress line."""
+    match = re.search(r"(\d+)%", text)
+    pct = int(match.group(1)) if match else -1
+    speed = ""
+    speed_match = SPEED_RE.search(text)
+    if speed_match:
+        value = float(speed_match.group(1))
+        unit = speed_match.group(2) or ""
+        speed = f"{value:g}{unit}B/s"
+    return pct, speed
+
+
 async def run_transfer(settings: AppSettings, transfer: TransferRecord) -> str:
     from app.db import update_transfer
     from app.models import TransferStatus
 
-    command = build_transfer_command(settings, transfer)
-    # Ensure progress2 is in the command args for parsing
-    if "--info=progress2" not in " ".join(command):
-        # We inject it into rsync_base earlier, but since we can't easily modify the nested lists,
-        # we'll just let the user ensure it's in settings.rsync_args.
-        pass
-
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
+    settings = settings.model_copy(
+        update={"rsync_args": ensure_progress_args(settings.rsync_args)}
     )
-    
-    output_lines = []
+    command = build_transfer_command(settings, transfer)
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+    except (OSError, ValueError) as exc:
+        raise TransferError(f"Failed to start rsync: {exc}") from exc
+
+    output_chunks: list[str] = []
     last_pct = -1
+    buffer = b""
 
     while True:
-        try:
-            line_bytes = await process.stdout.readuntil(b'\r')
-        except asyncio.exceptions.IncompleteReadError as e:
-            line_bytes = e.partial
-
-        if not line_bytes:
-            if process.stdout.at_eof():
-                break
-            continue
-
-        text = line_bytes.decode("utf-8", errors="replace").strip()
-        if not text:
-            if process.stdout.at_eof():
-                break
-            continue
-
-        output_lines.append(text)
-        
-        # Parse percentage e.g. " 15% "
-        match = re.search(r'(\d+)%', text)
-        if match:
-            pct = int(match.group(1))
-            if pct != last_pct:
-                last_pct = pct
-                update_transfer(transfer.id, TransferStatus.transferring, f"{pct}%", started=True)
-
-        if process.stdout.at_eof():
+        chunk = await process.stdout.read(65536)
+        if not chunk:
             break
+        buffer += chunk
+        lines = buffer.split(b"\r")
+        buffer = lines.pop()
+        for line in lines:
+            line = line.strip(b"\n \t")
+            if not line:
+                continue
+            text = line.decode("utf-8", errors="replace").strip()
+            output_chunks.append(text)
+            if len(output_chunks) > 200:
+                output_chunks.pop(0)
+            pct, speed = parse_progress(text)
+            if pct >= 0 and pct != last_pct:
+                last_pct = pct
+                message = f"{pct}%" + (f" · {speed}" if speed else "")
+                update_transfer(
+                    transfer.id,
+                    TransferStatus.transferring,
+                    message,
+                    started=True,
+                )
+
+    if buffer.strip():
+        output_chunks.append(buffer.decode("utf-8", errors="replace").strip())
 
     await process.wait()
-    output = "\n".join([x for x in output_lines[-25:] if x])
+    output = "\n".join(output_chunks[-25:])
 
     if process.returncode != 0:
         raise TransferError(output or f"rsync exited with code {process.returncode}")

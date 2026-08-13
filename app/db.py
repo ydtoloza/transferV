@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator
 
+from app import events
 from app.config import database_path
 from app.models import AppSettings, TransferCreate, TransferRecord, TransferStatus
 
@@ -137,6 +138,7 @@ def create_transfer(item: TransferCreate, settings: AppSettings) -> TransferReco
         row = conn.execute(
             "SELECT * FROM transfers WHERE id = last_insert_rowid()"
         ).fetchone()
+    events.broker.publish("transfers")
     return row_to_transfer(row)
 
 
@@ -162,6 +164,7 @@ def update_transfer(
             f"UPDATE transfers SET {', '.join(fields)} WHERE id = ?",
             params,
         )
+    events.broker.publish("transfers")
 
 
 def delete_transfer(transfer_id: int) -> bool:
@@ -170,6 +173,7 @@ def delete_transfer(transfer_id: int) -> bool:
             "DELETE FROM transfers WHERE id = ?",
             (transfer_id,),
         )
+    events.broker.publish("transfers")
     return cursor.rowcount > 0
 
 
@@ -224,6 +228,7 @@ def upsert_completed_transfer(item: TransferCreate, settings: AppSettings) -> Tr
             ).fetchone()
         except Exception:
             return None
+    events.broker.publish("transfers")
     return row_to_transfer(row) if row else None
 
 

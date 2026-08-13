@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import subprocess
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import db
+from app import db, events
 from app.models import ApiMessage, AppSettings, TransferCreate, TransferRecord
 from app.qbit import QbitClient
 from app.worker import TransferWorker, process_next_transfer
-import asyncio
-import subprocess
 
 
 app = FastAPI(title="TransferV")
@@ -89,10 +90,37 @@ async def run_worker_once() -> ApiMessage:
     return ApiMessage(ok=True, message="Worker cycle completed.")
 
 
+@app.get("/api/events")
+async def events_stream(request: Request) -> StreamingResponse:
+    queue = events.broker.subscribe()
+
+    async def stream():
+        try:
+            yield "retry: 4000\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=15)
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+                    continue
+                payload = json.dumps(item["data"]) if item["data"] is not None else "{}"
+                yield f"event: {item['event']}\ndata: {payload}\n\n"
+        finally:
+            events.broker.unsubscribe(queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/status")
 async def get_status() -> dict:
     settings = db.get_settings()
-    
+
     # Check QBit
     qbit_ok = False
     try:

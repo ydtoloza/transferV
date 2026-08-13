@@ -37,6 +37,38 @@ function relTime(iso) {
   return `hace ${Math.floor(h/24)}d`;
 }
 
+function etaText(sec) {
+  if (!sec || sec <= 0) return '—';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  if (m < 60) return `${m}m ${sec % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function durSince(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function speedText(msg) {
+  const m = msg && msg.match(/([\d.]+)\s*([KMGT])?B\/s/);
+  if (!m) return '';
+  const units = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
+  const bps = parseFloat(m[1]) * (units[m[2]] || 1);
+  if (!bps) return '';
+  return `${bytes(bps)}/s`;
+}
+
+const debounceTimers = {};
+function debounce(key, fn, ms) {
+  clearTimeout(debounceTimers[key]);
+  debounceTimers[key] = setTimeout(fn, ms);
+}
+
 // ── Torrent state mapping ──────────────────────────────────
 const STATE_MAP = {
   uploading:      { label: 'Seeding',       cls: 'state-seeding' },
@@ -222,29 +254,29 @@ function renderTorrents() {
       <thead>
         <tr>
           <th class="col-check"><div class="row-check" id="selectAllCheck"></div></th>
-          <th class="col-priority">#</th>
           <th class="col-icon"></th>
           <th class="col-name">Nombre</th>
           <th class="col-size">Tamaño</th>
           <th class="col-progress">Progreso</th>
-          <th class="col-action"></th>
           <th class="col-status">Estado</th>
+          <th class="col-action"></th>
           <th class="col-seeds">Seeds</th>
           <th class="col-peers">Peers</th>
           <th class="col-speed">Bajada</th>
           <th class="col-speed">Subida</th>
+          <th class="col-eta">ETA</th>
         </tr>
       </thead>
       <tbody>
         ${list.map((t, index) => {
           const { label, cls } = stateInfo(t.state);
           const isComplete = t.progress >= 1;
+          const isActive = !isComplete && t.dlspeed > 0;
           const queued = t.queued;
           const isSelected = state.selectedHashes.has(t.hash);
           return `
             <tr data-hash="${escHtml(t.hash)}" class="${isSelected ? 'selected' : ''}" title="${escHtml(t.content_path || t.save_path)}">
               <td>${t.transfer_status !== 'completed' && !queued ? `<div class="row-check ${isSelected ? 'active' : ''}"></div>` : ''}</td>
-              <td>${index + 1}</td>
               <td>
                 ${t.tracker 
                   ? `<img src="https://icons.duckduckgo.com/ip3/${escHtml(t.tracker)}.ico" class="tracker-icon-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-grid'"><span class="torrent-icon" style="display:none">↓</span>`
@@ -252,13 +284,14 @@ function renderTorrents() {
                 }
               </td>
               <td><span class="name-cell">${escHtml(t.name)}</span></td>
-              <td>${bytes(t.size)}</td>
+              <td class="cell-dim">${bytes(t.size)}</td>
               <td>
                 <div class="progress-cell">
-                  <div class="progress-bar"><div class="progress-fill ${isComplete?'complete':''}" style="width:${pct(t.progress)}"></div></div>
-                  <span class="progress-label">${Math.round((t.progress || 0) * 100)}</span>
+                  <div class="progress-bar"><div class="progress-fill ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}" style="width:${pct(t.progress)}"></div></div>
+                  <span class="progress-label ${isActive ? 'pulse-text' : ''}">${Math.round((t.progress || 0) * 100)}%</span>
                 </div>
               </td>
+              <td><span class="badge ${cls}">${label}</span></td>
               <td>
                 ${t.transfer_status === 'completed'
                   ? `<span class="badge badge-ok" title="Transferido">OK</span>`
@@ -267,11 +300,11 @@ function renderTorrents() {
                     </button>`
                 }
               </td>
-              <td><span class="badge ${cls}">${label}</span></td>
-              <td>0 (0)</td>
-              <td>0 (0)</td>
-              <td>-</td>
-              <td>-</td>
+              <td class="cell-num">${t.num_seeds} <span class="cell-sub">(${t.num_complete})</span></td>
+              <td class="cell-num">${t.num_leechs} <span class="cell-sub">(${t.num_incomplete})</span></td>
+              <td class="cell-num ${t.dlspeed ? 'cell-live' : 'cell-dim'}">${t.dlspeed ? bytes(t.dlspeed) + '/s' : '—'}</td>
+              <td class="cell-num ${t.upspeed ? 'cell-live' : 'cell-dim'}">${t.upspeed ? bytes(t.upspeed) + '/s' : '—'}</td>
+              <td class="cell-num cell-dim">${etaText(t.eta)}</td>
             </tr>`;
         }).join('')}
       </tbody>
@@ -354,9 +387,10 @@ function renderQueue() {
       const match = t.message.match(/(\d+)%/);
       if (match) pctNum = parseInt(match[1]);
     }
+    const speed = isTransferring ? speedText(t.message) : '';
 
     return `
-    <article class="item">
+    <article class="item ${isTransferring ? 'item-live' : ''}">
       <div class="item-header">
         <div class="item-title">${escHtml(t.torrent_name)}</div>
         <div class="item-actions">
@@ -366,8 +400,15 @@ function renderQueue() {
       </div>
       <div class="item-path">${escHtml(t.source_path)} → ${escHtml(t.destination_path)}</div>
       ${isTransferring ? `
-        <div class="progress-bar">
-          <div class="progress-fill" style="width:${pctNum}%"></div>
+        <div class="transfer-progress">
+          <div class="progress-bar">
+            <div class="progress-fill transferring ${pctNum > 0 && pctNum < 100 ? 'active' : ''}" style="width:${Math.max(pctNum, 4)}%"></div>
+          </div>
+          <div class="transfer-meta">
+            <span class="progress-label live">${pctNum}%</span>
+            ${speed ? `<span class="transfer-speed">${speed}</span>` : ''}
+            ${t.started_at ? `<span class="transfer-elapsed" data-started="${escHtml(t.started_at)}">${durSince(t.started_at)}</span>` : ''}
+          </div>
         </div>
       ` : ''}
       ${t.message && !isTransferring ? `<div class="item-path" style="margin-top:4px;color:var(--ink-2)">${escHtml(t.message)}</div>` : ''}
@@ -556,6 +597,20 @@ async function deleteTransfer(id) {
   }
 }
 
+// ── Real-time (SSE) ────────────────────────────────────────
+function connectEvents() {
+  if (!window.EventSource) return;
+  const sse = new EventSource('/api/events');
+  sse.addEventListener('transfers', () => {
+    debounce('transfers', loadTransfers, 250);
+    debounce('torrents', loadTorrents, 8000);
+  });
+  sse.addEventListener('torrents', () => {
+    debounce('torrents', loadTorrents, 1200);
+  });
+  // EventSource reconnects automatically on error.
+}
+
 // ── Theme ──────────────────────────────────────────────────
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -574,17 +629,28 @@ function bindEvents() {
     btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
   });
 
-  $('#refreshBtn')?.addEventListener('click', refreshAll);
+  $('#refreshBtn')?.addEventListener('click', () => {
+    refreshAll();
+    const icon = $('#refreshBtn svg');
+    if (icon) {
+      $('#refreshBtn').classList.add('spin');
+      setTimeout(() => $('#refreshBtn').classList.remove('spin'), 700);
+    }
+  });
   $('#saveBtn')?.addEventListener('click', saveSettings);
   $('#themeToggleBtn')?.addEventListener('click', toggleTheme);
 
   $('#runOnceBtn')?.addEventListener('click', async () => {
+    if ($('#runOnceBtn').classList.contains('busy')) return;
+    $('#runOnceBtn').classList.add('busy', 'spin');
     try {
       await api('/api/worker/run-once', { method: 'POST' });
       await loadTransfers();
       toast('Ciclo procesado', '', 'info');
     } catch (err) {
       toast('Error', err.message, 'error');
+    } finally {
+      $('#runOnceBtn').classList.remove('busy', 'spin');
     }
   });
 
@@ -695,15 +761,19 @@ const savedTheme = localStorage.getItem('transferv-theme') || 'dark';
 applyTheme(savedTheme);
 
 bindEvents();
+connectEvents();
 refreshAll();
 setInterval(() => {
-  state.nextCycleSeconds = 15;
+  state.nextCycleSeconds = 12;
   loadTorrents().catch(() => {});
   loadTransfers().catch(() => {});
-}, 15000);
+}, 12000);
 setInterval(() => {
   state.nextCycleSeconds = Math.max(0, state.nextCycleSeconds - 1);
   renderSidebarStats();
+  $$('[data-started]').forEach(el => {
+    el.textContent = durSince(el.dataset.started);
+  });
 }, 1000);
 setInterval(() => {
   loadStatus().catch(() => {});

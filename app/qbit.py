@@ -41,31 +41,10 @@ class QbitClient:
         response = await self.client.get(f"{self.base_url}/api/v2/torrents/info")
         response.raise_for_status()
         queued_hashes = queued_hashes or set()
-        items = []
-        for raw in response.json():
-            torrent_hash = raw.get("hash", "")
-            files = await self.files(torrent_hash)
-            source_path = map_source_path(
-                infer_source_path(raw, files),
-                self.settings.qbit.downloads_path,
-                self.settings.qbit.host_downloads_path,
-            )
-            tracker = extract_tracker(raw.get("tracker", "") or raw.get("trackers_count", ""))
-            items.append(
-                Torrent(
-                    hash=torrent_hash,
-                    name=raw.get("name", ""),
-                    state=raw.get("state", ""),
-                    progress=raw.get("progress", 0),
-                    size=raw.get("size", 0),
-                    save_path=raw.get("save_path", ""),
-                    content_path=source_path,
-                    files=files,
-                    queued=torrent_hash in queued_hashes,
-                    added_on=raw.get("added_on", 0),
-                    tracker=tracker,
-                )
-            )
+        items = [
+            await self._build_torrent(raw, raw.get("hash", "") in queued_hashes)
+            for raw in response.json()
+        ]
         # Sort by added_on descending (newest first)
         items.sort(key=lambda t: t.added_on, reverse=True)
         return items
@@ -79,8 +58,14 @@ class QbitClient:
         items = response.json()
         if not items:
             return None
-        files = await self.files(torrent_hash)
-        raw = items[0]
+        return await self._build_torrent(items[0])
+
+    async def _build_torrent(self, raw: dict, queued: bool = False) -> Torrent:
+        torrent_hash = raw.get("hash", "")
+        files: list[TorrentFile] = []
+        content_path = raw.get("content_path") or ""
+        if not content_path:
+            files = await self.files(torrent_hash)
         source_path = map_source_path(
             infer_source_path(raw, files),
             self.settings.qbit.downloads_path,
@@ -88,7 +73,7 @@ class QbitClient:
         )
         tracker = extract_tracker(raw.get("tracker", "") or "")
         return Torrent(
-            hash=raw.get("hash", ""),
+            hash=torrent_hash,
             name=raw.get("name", ""),
             state=raw.get("state", ""),
             progress=raw.get("progress", 0),
@@ -96,8 +81,17 @@ class QbitClient:
             save_path=raw.get("save_path", ""),
             content_path=source_path,
             files=files,
+            queued=queued,
             added_on=raw.get("added_on", 0),
             tracker=tracker,
+            num_seeds=raw.get("num_seeds", 0),
+            num_complete=raw.get("num_complete", 0),
+            num_leechs=raw.get("num_leechs", 0),
+            num_incomplete=raw.get("num_incomplete", 0),
+            dlspeed=raw.get("dlspeed", 0),
+            upspeed=raw.get("upspeed", 0),
+            eta=raw.get("eta", 0),
+            ratio=raw.get("ratio", 0),
         )
 
     async def files(self, torrent_hash: str) -> list[TorrentFile]:

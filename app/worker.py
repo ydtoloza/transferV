@@ -3,13 +3,12 @@ from __future__ import annotations
 import asyncio
 from contextlib import suppress
 
-from app import db
-from app.models import TransferStatus, TransferCreate, TransferRecord
+from app import db, events
+from app.models import TransferStatus, TransferRecord
 from app.qbit import QbitClient, is_complete
 from app.transfer import TransferError, run_transfer, verify_destination
 from app.webhook import send_webhook
 import time
-from app.webhook import send_webhook
 
 
 class TransferWorker:
@@ -112,46 +111,55 @@ async def process_next_transfer() -> None:
             return
 
         settings = db.get_settings()
-    try:
-        async with QbitClient(settings) as qbit:
-            torrent = await qbit.torrent(transfer.torrent_hash)
-    except Exception as exc:
-        db.update_transfer(
-            transfer.id,
-            TransferStatus.waiting,
-            f"Waiting for qBittorrent: {exc}",
-        )
-        return
+        try:
+            async with QbitClient(settings) as qbit:
+                torrent = await qbit.torrent(transfer.torrent_hash)
+        except Exception as exc:
+            db.update_transfer(
+                transfer.id,
+                TransferStatus.waiting,
+                f"Waiting for qBittorrent: {exc}",
+            )
+            return
 
-    if not torrent:
-        db.update_transfer(transfer.id, TransferStatus.failed, "Torrent no longer exists.", completed=True)
-        await notify(settings, transfer, TransferStatus.failed, "Torrent no longer exists.")
-        return
+        if not torrent:
+            db.update_transfer(
+                transfer.id,
+                TransferStatus.failed,
+                "Torrent no longer exists.",
+                completed=True,
+            )
+            updated = db.get_transfer(transfer.id) or transfer
+            await notify(settings, updated, TransferStatus.failed, "Torrent no longer exists.")
+            events.broker.publish("torrents")
+            return
 
-    if not is_complete(torrent):
-        percent = round(torrent.progress * 100, 2)
-        db.update_transfer(
-            transfer.id,
-            TransferStatus.waiting,
-            f"Waiting for torrent completion: {percent}%",
-        )
-        return
+        if not is_complete(torrent):
+            percent = round(torrent.progress * 100, 2)
+            db.update_transfer(
+                transfer.id,
+                TransferStatus.waiting,
+                f"Waiting for torrent completion: {percent}%",
+            )
+            return
 
-    db.update_transfer(transfer.id, TransferStatus.transferring, "Transfer started.", started=True)
-    current = db.get_transfer(transfer.id) or transfer
-    try:
-        output = await run_transfer(settings, current)
-    except TransferError as exc:
-        message = str(exc)
-        db.update_transfer(transfer.id, TransferStatus.failed, message, completed=True)
+        db.update_transfer(transfer.id, TransferStatus.transferring, "Transfer started.", started=True)
+        current = db.get_transfer(transfer.id) or transfer
+        try:
+            output = await run_transfer(settings, current)
+        except TransferError as exc:
+            message = str(exc)
+            db.update_transfer(transfer.id, TransferStatus.failed, message, completed=True)
+            updated = db.get_transfer(transfer.id) or current
+            await notify(settings, updated, TransferStatus.failed, message)
+            events.broker.publish("torrents")
+            return
+
+        message = output or "Transfer completed."
+        db.update_transfer(transfer.id, TransferStatus.completed, message, completed=True)
         updated = db.get_transfer(transfer.id) or current
-        await notify(settings, updated, TransferStatus.failed, message)
-        return
-
-    message = output or "Transfer completed."
-    db.update_transfer(transfer.id, TransferStatus.completed, message, completed=True)
-    updated = db.get_transfer(transfer.id) or current
-    await notify(settings, updated, TransferStatus.completed, message)
+        await notify(settings, updated, TransferStatus.completed, message)
+        events.broker.publish("torrents")
 
 
 async def notify(settings, transfer, status: TransferStatus, message: str) -> None:
