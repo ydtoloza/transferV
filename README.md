@@ -72,9 +72,11 @@ docker compose -f docker-compose.prod.yml up -d
 
 1. **qBittorrent Setup**: Set the WebUI URL, username, password, and download path.
    * *Tip*: If qBittorrent runs in Docker, set the container path (e.g. `/downloads`) and the real SSH host path (e.g. `/home/mediaserver/media/downloads`).
+   * Las credenciales de qBittorrent (usuario y contraseña de la WebUI) se configuran en Ajustes → Configuración, en el bloque «Credenciales de qBittorrent».
 2. **Destination Path**: Set the fixed destination path where completed downloads should land.
 3. **Transfer Mode**: Choose your preferred transfer method (`local_pull`, `orchestrated_pull`, or `remote_push`).
 4. **SSH Configuration**: Configure SSH for the VPS and, when needed, for the destination server.
+   * Las credenciales del servidor origen y destino (usuario, método, ruta de llave o contraseña) se configuran en sus bloques «Credenciales SSH del servidor origen/destino»; se recomienda usar Llave SSH en lugar de contraseña.
 5. **Webhooks**: Configure the webhook URL, headers, and body template for notifications.
 
 ## 🔔 Webhooks & Notificaciones

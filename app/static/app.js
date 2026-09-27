@@ -162,12 +162,48 @@ function fillForm(settings) {
 
 function readForm() {
   const s = structuredClone(state.settings);
+  // Itera TODOS los [name], incluidos los campos ocultos/deshabilitados de
+  // autenticación, para no perder contraseñas ni rutas al guardar.
   $$('[name]').forEach(input => {
     let val = input.type === 'checkbox' ? input.checked : input.value;
     if (input.type === 'number') val = Number(val);
     setPath(s, input.name, val);
   });
   return s;
+}
+
+// ── Auth visibility (SSH key vs password) ──────────────────
+// Oculta y deshabilita el campo no activo, pero conserva su valor en el DOM
+// para que readForm() lo siga serializando.
+function syncAuthVisibility(scope) {
+  const group = document.querySelector(`[data-auth-scope="${scope}"]`);
+  if (!group) return;
+  const select = group.querySelector('[data-auth-select]');
+  if (!select) return;
+  const method = select.value === 'password' ? 'password' : 'key';
+  group.querySelectorAll('[data-auth-field]').forEach(field => {
+    const active = field.dataset.authField === method;
+    field.hidden = !active;
+    field.querySelectorAll('input, select, textarea').forEach(control => {
+      control.disabled = !active;
+    });
+  });
+}
+
+function syncAllAuthVisibility() {
+  $$('[data-auth-scope]').forEach(group => syncAuthVisibility(group.dataset.authScope));
+}
+
+function togglePassword(btn) {
+  const input = document.getElementById(btn.dataset.pwToggle);
+  if (!input) return;
+  const willShow = input.type === 'password';
+  input.type = willShow ? 'text' : 'password';
+  btn.classList.toggle('is-visible', willShow);
+  btn.setAttribute('aria-pressed', willShow ? 'true' : 'false');
+  const label = willShow ? 'Ocultar contraseña' : 'Mostrar contraseña';
+  btn.setAttribute('aria-label', label);
+  btn.setAttribute('title', label);
 }
 
 // ── Render torrents ────────────────────────────────────────
@@ -508,6 +544,7 @@ function switchPanel(panelId) {
 async function loadSettings() {
   state.settings = await api('/api/settings');
   fillForm(state.settings);
+  syncAllAuthVisibility();
 }
 
 async function loadStatus() {
@@ -559,6 +596,7 @@ async function saveSettings() {
   try {
     state.settings = await api('/api/settings', { method: 'PUT', body: JSON.stringify(readForm()) });
     fillForm(state.settings);
+    syncAllAuthVisibility();
     toast('Ajustes guardados', '', 'ok');
   } catch (err) {
     toast('Error al guardar', err.message, 'error');
@@ -670,8 +708,20 @@ function bindEvents() {
     renderLogs();
   });
 
+  // Delegation: sincronizar visibilidad al cambiar el método de autenticación
+  document.body.addEventListener('change', (e) => {
+    const authSelect = e.target.closest('[data-auth-select]');
+    if (authSelect) syncAuthVisibility(authSelect.dataset.authSelect);
+  });
+
   // Delegation: transfer, delete, log toggle, tracker pills, restart ssh
   document.body.addEventListener('click', (e) => {
+    const pwToggle = e.target.closest('.pw-toggle');
+    if (pwToggle) {
+      togglePassword(pwToggle);
+      return;
+    }
+
     const restartBtn = e.target.closest('[data-restart]');
     if (restartBtn) {
       restartSsh(restartBtn.dataset.restart);

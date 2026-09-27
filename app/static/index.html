@@ -223,10 +223,31 @@
                   <label for="s-qbit-url">URL de la interfaz web</label>
                   <input name="qbit.url" id="s-qbit-url" placeholder="http://192.168.1.100:8080" />
                 </div>
-                <div class="field"><label for="s-qbit-user">Usuario</label><input name="qbit.username" id="s-qbit-user" /></div>
-                <div class="field"><label for="s-qbit-pass">Contraseña</label><input name="qbit.password" id="s-qbit-pass" type="password" /></div>
                 <div class="field"><label for="s-qbit-dl">Ruta de descargas en qBittorrent</label><input name="qbit.downloads_path" id="s-qbit-dl" placeholder="/downloads" /></div>
                 <div class="field"><label for="s-qbit-host-dl">Ruta real de descargas</label><input name="qbit.host_downloads_path" id="s-qbit-host-dl" placeholder="/home/user/media/downloads" /></div>
+              </div>
+              <div class="cred-group">
+                <div class="cred-group-header">
+                  <h4 class="cred-group-title">Credenciales de qBittorrent</h4>
+                  <span class="cred-badge">WebUI</span>
+                </div>
+                <p class="cred-hint">Usuario y contraseña con los que TransferV se autentica en la WebUI de qBittorrent para consultar y gestionar los torrents.</p>
+                <div class="cred-grid">
+                  <div class="field">
+                    <label for="s-qbit-user">Usuario de qBittorrent</label>
+                    <input name="qbit.username" id="s-qbit-user" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="s-qbit-pass">Contraseña de qBittorrent</label>
+                    <div class="password-field">
+                      <input name="qbit.password" id="s-qbit-pass" type="password" autocomplete="new-password" />
+                      <button type="button" class="pw-toggle" data-pw-toggle="s-qbit-pass" aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
+                        <svg class="pw-icon pw-icon-show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="pw-icon pw-icon-hide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -235,10 +256,36 @@
               <div class="settings-grid">
                 <div class="field"><label for="s-vps-host">Host / IP</label><input name="vps_ssh.host" id="s-vps-host" /></div>
                 <div class="field"><label for="s-vps-port">Puerto SSH</label><input name="vps_ssh.port" id="s-vps-port" type="number" /></div>
-                <div class="field"><label for="s-vps-user">Usuario SSH</label><input name="vps_ssh.username" id="s-vps-user" /></div>
-                <div class="field"><label for="s-vps-auth">Método de autenticación</label><select name="vps_ssh.auth_method" id="s-vps-auth"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select></div>
-                <div class="field"><label for="s-vps-key">Ruta a la llave privada</label><input name="vps_ssh.key_path" id="s-vps-key" placeholder="/keys/id_ed25519" /></div>
-                <div class="field"><label for="s-vps-pw">Contraseña SSH</label><input name="vps_ssh.password" id="s-vps-pw" type="password" /></div>
+              </div>
+              <div class="cred-group" data-auth-scope="vps">
+                <div class="cred-group-header">
+                  <h4 class="cred-group-title">Credenciales SSH del servidor origen</h4>
+                </div>
+                <p class="cred-hint">La contraseña se usa únicamente cuando el método es Contraseña. La ruta de llave aplica cuando el método es Llave SSH.</p>
+                <div class="cred-grid">
+                  <div class="field">
+                    <label for="s-vps-user">Usuario SSH</label>
+                    <input name="vps_ssh.username" id="s-vps-user" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="s-vps-auth">Método de autenticación</label>
+                    <select name="vps_ssh.auth_method" id="s-vps-auth" data-auth-select="vps"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select>
+                  </div>
+                  <div class="field" data-auth-field="key">
+                    <label for="s-vps-key">Ruta a la llave privada</label>
+                    <input name="vps_ssh.key_path" id="s-vps-key" placeholder="/keys/id_ed25519" autocomplete="off" />
+                  </div>
+                  <div class="field" data-auth-field="password">
+                    <label for="s-vps-pw">Contraseña SSH del servidor origen</label>
+                    <div class="password-field">
+                      <input name="vps_ssh.password" id="s-vps-pw" type="password" autocomplete="new-password" />
+                      <button type="button" class="pw-toggle" data-pw-toggle="s-vps-pw" aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
+                        <svg class="pw-icon pw-icon-show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="pw-icon pw-icon-hide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -247,10 +294,36 @@
               <div class="settings-grid">
                 <div class="field"><label for="s-dst-host">Host / IP</label><input name="destination_ssh.host" id="s-dst-host" /></div>
                 <div class="field"><label for="s-dst-port">Puerto SSH</label><input name="destination_ssh.port" id="s-dst-port" type="number" /></div>
-                <div class="field"><label for="s-dst-user">Usuario SSH</label><input name="destination_ssh.username" id="s-dst-user" /></div>
-                <div class="field"><label for="s-dst-auth">Método de autenticación</label><select name="destination_ssh.auth_method" id="s-dst-auth"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select></div>
-                <div class="field"><label for="s-dst-key">Ruta a la llave privada</label><input name="destination_ssh.key_path" id="s-dst-key" placeholder="/keys/id_ed25519" /></div>
-                <div class="field"><label for="s-dst-pw">Contraseña SSH</label><input name="destination_ssh.password" id="s-dst-pw" type="password" /></div>
+              </div>
+              <div class="cred-group" data-auth-scope="destination">
+                <div class="cred-group-header">
+                  <h4 class="cred-group-title">Credenciales SSH del servidor destino</h4>
+                </div>
+                <p class="cred-hint">La contraseña se usa únicamente cuando el método es Contraseña. La ruta de llave aplica cuando el método es Llave SSH.</p>
+                <div class="cred-grid">
+                  <div class="field">
+                    <label for="s-dst-user">Usuario SSH</label>
+                    <input name="destination_ssh.username" id="s-dst-user" autocomplete="off" />
+                  </div>
+                  <div class="field">
+                    <label for="s-dst-auth">Método de autenticación</label>
+                    <select name="destination_ssh.auth_method" id="s-dst-auth" data-auth-select="destination"><option value="key">Llave SSH</option><option value="password">Contraseña</option></select>
+                  </div>
+                  <div class="field" data-auth-field="key">
+                    <label for="s-dst-key">Ruta a la llave privada</label>
+                    <input name="destination_ssh.key_path" id="s-dst-key" placeholder="/keys/id_ed25519" autocomplete="off" />
+                  </div>
+                  <div class="field" data-auth-field="password">
+                    <label for="s-dst-pw">Contraseña SSH del servidor destino</label>
+                    <div class="password-field">
+                      <input name="destination_ssh.password" id="s-dst-pw" type="password" autocomplete="new-password" />
+                      <button type="button" class="pw-toggle" data-pw-toggle="s-dst-pw" aria-label="Mostrar contraseña" aria-pressed="false" title="Mostrar contraseña">
+                        <svg class="pw-icon pw-icon-show" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="pw-icon pw-icon-hide" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

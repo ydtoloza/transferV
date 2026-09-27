@@ -1113,6 +1113,89 @@ textarea:focus-visible {
 .toggle-input:checked + .toggle-switch { background: var(--accent); }
 .toggle-input:checked + .toggle-switch::after { transform: translateX(17px); background: #fff; }
 
+/* ── Credential groups ──────────────────────────────────── */
+.cred-group {
+  margin: 0 17px 17px;
+  padding: 15px 16px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(135deg, var(--accent-dim), transparent 70%),
+    var(--surface-2);
+}
+
+.cred-group-header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-bottom: 5px;
+}
+
+.cred-group-title {
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: .01em;
+}
+
+.cred-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent-dim);
+  color: var(--accent-2);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.cred-hint {
+  margin-bottom: 13px;
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.cred-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Campos de autenticación contextuales: ocultos y deshabilitados */
+[data-auth-field][hidden] { display: none; }
+
+/* ── Password field + toggle ─────────────────────────────── */
+.password-field { position: relative; display: block; }
+
+.password-field input { padding-right: 42px; }
+
+.pw-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  transition: color var(--transition), background var(--transition);
+}
+
+.pw-toggle:hover { color: var(--ink); background: rgba(255,255,255,.06); }
+
+[data-theme="light"] .pw-toggle:hover { background: rgba(15,23,42,.06); }
+
+.pw-toggle .pw-icon-hide { display: none; }
+.pw-toggle.is-visible .pw-icon-show { display: none; }
+.pw-toggle.is-visible .pw-icon-hide { display: block; }
+
 /* ── Scrollbars ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1197,5 +1280,6 @@ textarea:focus-visible {
   .toolbar-search { flex: 1; width: auto; }
   .torrent-workspace { grid-template-columns: 1fr; }
   .filter-panel { max-height: 260px; border-right: 0; border-bottom: 1px solid var(--border); }
-  .settings-grid { grid-template-columns: 1fr; }
+  .settings-grid, .cred-grid { grid-template-columns: 1fr; }
+  .cred-group { margin: 0 12px 12px; }
 }
