@@ -1196,6 +1196,91 @@ textarea:focus-visible {
 .pw-toggle.is-visible .pw-icon-show { display: none; }
 .pw-toggle.is-visible .pw-icon-hide { display: block; }
 
+/* ── Settings density (solo panel de Configuración) ─────── */
+/* Compacta el formulario para que a alturas habituales (768-900px)
+   se vean más secciones sin depender del zoom del navegador.
+   No afecta al resto de la aplicación ni a la lógica del formulario. */
+#panel-settings .panel-topbar {
+  gap: 12px;
+  padding: 14px 22px 12px;
+}
+
+#panel-settings .panel-sub { font-size: 12px; }
+
+#panel-settings .settings-layout {
+  padding: 14px 22px 16px;
+  gap: 12px;
+  /* Conserva el scroll interno y reserva el carril de la barra */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  /* Firefox: thumb opaco y visible sobre superficies oscuras */
+  scrollbar-color: #6b7280 transparent;
+}
+
+/* Firefox: contraste del thumb en tema claro sobre el formulario */
+[data-theme="light"] #panel-settings .settings-layout {
+  scrollbar-color: #334155 transparent;
+}
+
+#panel-settings .settings-section-header { padding: 10px 14px; }
+
+#panel-settings .settings-grid {
+  gap: 11px 14px;
+  padding: 12px 14px;
+}
+
+#panel-settings .field { gap: 4px; }
+#panel-settings .field label { font-size: 12px; }
+#panel-settings .field-hint { font-size: 11.5px; }
+
+/* Texto auxiliar compacto dentro de Configuración: sube de --ink-3 a
+   --ink-2 para mantener contraste suficiente en tema claro y oscuro. */
+#panel-settings .field-hint,
+#panel-settings .cred-hint { color: var(--ink-2); }
+
+#panel-settings .field input,
+#panel-settings .field select {
+  padding: 7px 10px;
+  border-radius: 7px;
+}
+
+#panel-settings .field textarea { min-height: 64px; }
+
+#panel-settings .cred-group {
+  margin: 0 14px 12px;
+  padding: 11px 13px;
+}
+
+#panel-settings .cred-hint { margin-bottom: 9px; }
+
+#panel-settings .cred-grid { gap: 10px 14px; }
+
+#panel-settings .webhook-toggle-row { padding: 10px 14px; }
+
+/* Scrollbar más evidente solo dentro del formulario de Configuración */
+#panel-settings .settings-layout::-webkit-scrollbar { width: 12px; }
+#panel-settings .settings-layout::-webkit-scrollbar-thumb {
+  background: #6b7280;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+#panel-settings .settings-layout::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+[data-theme="light"] #panel-settings .settings-layout::-webkit-scrollbar-thumb {
+  background: #334155;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+[data-theme="light"] #panel-settings .settings-layout::-webkit-scrollbar-thumb:hover {
+  background: #1e293b;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
 /* ── Scrollbars ─────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
@@ -1260,6 +1345,57 @@ textarea:focus-visible {
 .bulk-actions { display: flex; align-items: center; gap: 9px; }
 
 /* ── Responsive ─────────────────────────────────────────── */
+/* Configuración: densidad por altura (sin tocar el resto de la UI).
+   A 768-900px de alto se compactan espaciados para ver más campos;
+   el formulario conserva su scroll interno como fallback. */
+@media (max-height: 900px) {
+  #panel-settings .panel-topbar { padding: 11px 20px 9px; }
+
+  #panel-settings .settings-layout {
+    padding: 11px 20px 14px;
+    gap: 10px;
+  }
+
+  #panel-settings .settings-section-header { padding: 8px 12px; }
+
+  #panel-settings .settings-grid {
+    gap: 9px 12px;
+    padding: 10px 12px;
+  }
+
+  #panel-settings .field input,
+  #panel-settings .field select {
+    padding: 6px 9px;
+  }
+
+  #panel-settings .field textarea { min-height: 56px; }
+
+  #panel-settings .cred-group {
+    margin: 0 12px 10px;
+    padding: 9px 11px;
+  }
+
+  #panel-settings .cred-hint {
+    margin-bottom: 7px;
+    font-size: 11.5px;
+  }
+
+  #panel-settings .cred-grid { gap: 8px 12px; }
+
+  #panel-settings .webhook-toggle-row { padding: 8px 12px; }
+}
+
+/* Alturas muy cortas (< 720px): una compresión extra manteniendo
+   legibilidad y foco visible. No se oculta ningún campo. */
+@media (max-height: 720px) {
+  #panel-settings .panel-topbar { padding: 9px 18px 8px; }
+  #panel-settings .settings-layout { padding: 9px 18px 12px; gap: 8px; }
+  #panel-settings .settings-grid { gap: 8px 10px; padding: 9px 10px; }
+  #panel-settings .cred-group { margin: 0 10px 8px; padding: 8px 10px; }
+  #panel-settings .cred-grid { gap: 7px 10px; }
+  #panel-settings .field { gap: 3px; }
+}
+
 @media (max-width: 980px) {
   :root { --sidebar-w: 76px; --filter-w: 250px; }
   .sidebar-title, .nav-item span:not(.nav-badge), .sidebar-section, .sidebar-status { display: none; }
