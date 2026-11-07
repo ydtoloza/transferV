@@ -71,8 +71,11 @@ def target(settings: SshSettings) -> str:
     return f"{settings.username}@{settings.host}"
 
 
-def ssh_command(settings: SshSettings, remote_command: str) -> list[str]:
-    return [*sshpass_prefix(settings), "ssh", *ssh_options(settings), target(settings), remote_command]
+def ssh_command(settings: SshSettings, remote_command: str, tty: bool = False) -> list[str]:
+    # tty=True: the remote command gets SIGHUP and dies if this connection
+    # drops (e.g. TransferV restarts), instead of running on orphaned.
+    flags = ["-tt"] if tty else []
+    return [*sshpass_prefix(settings), "ssh", *flags, *ssh_options(settings), target(settings), remote_command]
 
 
 def is_configured(settings: SshSettings) -> bool:
@@ -147,7 +150,7 @@ def build_transfer_command(settings: AppSettings, transfer: TransferRecord) -> l
             f"{target(settings.vps_ssh)}:{transfer.source_path}",
             ensure_trailing_slash(transfer.destination_path),
         ])
-        return ssh_command(settings.destination_ssh, inner)
+        return ssh_command(settings.destination_ssh, inner, tty=True)
     if mode == TransferMode.remote_push:
         # The VPS runs rsync and pushes to the destination host.
         inner = quote_all([
@@ -155,7 +158,7 @@ def build_transfer_command(settings: AppSettings, transfer: TransferRecord) -> l
             transfer.source_path,
             f"{target(settings.destination_ssh)}:{ensure_trailing_slash(transfer.destination_path)}",
         ])
-        return ssh_command(settings.vps_ssh, inner)
+        return ssh_command(settings.vps_ssh, inner, tty=True)
     raise TransferError(f"Unsupported transfer mode: {mode}")
 
 
@@ -169,6 +172,10 @@ SPEED_RE = re.compile(r"([\d.]+)\s*([KMGT])?B/s")
 def ensure_progress_args(rsync_args: str) -> str:
     """Guarantee flags needed to parse progress in real time over pipes."""
     args = shlex.split(rsync_args)
+    # --partial would leave an interrupted file under its final name, where
+    # Plex/qBittorrent see it as complete. Keep partial data in a hidden dir
+    # instead (implies --partial; a later run resumes from it).
+    args = ["--partial-dir=.rsync-partial" if a == "--partial" else a for a in args]
     for extra in ("--info=progress2", "--outbuf=Line"):
         if extra not in args:
             args.append(extra)

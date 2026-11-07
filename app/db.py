@@ -272,6 +272,16 @@ def upsert_completed_transfer(item: TransferCreate, settings: AppSettings) -> Tr
     return row_to_transfer(row) if row else None
 
 
+def requeue_interrupted() -> int:
+    """Transfers left as 'transferring' by a previous process go back to the queue."""
+    with connect() as conn:
+        cur = conn.execute(
+            "UPDATE transfers SET status = 'waiting', message = ?, updated_at = ? WHERE status = 'transferring'",
+            ("Interrumpida por un reinicio; se reanuda automáticamente.", utc_now()),
+        )
+    return cur.rowcount
+
+
 def get_transfer(transfer_id: int) -> TransferRecord | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM transfers WHERE id = ?", (transfer_id,)).fetchone()

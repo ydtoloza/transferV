@@ -26,6 +26,9 @@ static_dir = Path(__file__).parent / "static"
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     db.init_db()
+    # A restart kills any rsync in flight; put those back in the queue so they
+    # resume (from .rsync-partial) instead of staying "transferring" forever.
+    db.requeue_interrupted()
     worker.start()
     yield
     await worker.stop()
