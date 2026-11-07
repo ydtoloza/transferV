@@ -9,7 +9,7 @@ from typing import Callable
 from app import db, events
 from app.models import AppSettings, TransferCreate, TransferRecord, TransferStatus
 from app.qbit import QbitClient, is_complete
-from app.transfer import TransferError, destination_file, paths_exist, run_transfer, summarize_output
+from app.transfer import TransferError, can_segment, destination_file, paths_exist, run_transfer, summarize_output
 from app.webhook import send_webhook
 
 log = logging.getLogger("transferv.worker")
@@ -37,7 +37,7 @@ class TransferWorker:
         self._wake.set()
 
     async def stop(self) -> None:
-        for task in list(running.values()):
+        for task, _ in list(running.values()):
             task.cancel()
         if self._task:
             self._task.cancel()
@@ -67,9 +67,11 @@ class TransferWorker:
 
 # ── queue ──────────────────────────────────────────────────
 
-# transfer id -> task running its rsync. Each SSH stream tops out around
-# window/RTT (~11 MiB/s at 170 ms), so parallel transfers add up.
-running: dict[int, asyncio.Task] = {}
+# transfer id -> (task, SSH connections it uses). Each SSH connection tops out
+# around window/RTT (~11 MiB/s at 170 ms), so connections add up to the link's
+# ceiling. They are shared out: several queued files get one each; a lone big
+# file gets them all as parallel segments.
+running: dict[int, tuple[asyncio.Task, int]] = {}
 
 
 def set_status(transfer: TransferRecord, status: TransferStatus, message: str) -> None:
@@ -91,8 +93,8 @@ async def process_queue(settings: AppSettings, wake: Callable[[], None] = lambda
             set_status(transfer, TransferStatus.waiting, f"Esperando a qBittorrent: {exc}")
         return
 
-    slots = max(1, settings.max_parallel_transfers) - len(running)
-    # Ready transfers start as slots free up; incomplete ones never block the queue.
+    free = max(1, settings.max_parallel_transfers) - sum(n for _, n in running.values())
+    ready = []
     for transfer in queued:
         torrent = torrents.get(transfer.torrent_hash)
         if not torrent:
@@ -103,19 +105,34 @@ async def process_queue(settings: AppSettings, wake: Callable[[], None] = lambda
                 TransferStatus.waiting,
                 f"Esperando que termine la descarga: {round(torrent.progress * 100, 1)}%",
             )
-        elif slots <= 0:
-            set_status(transfer, TransferStatus.pending, "Lista; espera a que termine otra transferencia.")
         else:
-            slots -= 1
-            # Mark it before the task runs so the next cycle never starts it twice.
-            db.update_transfer(transfer.id, TransferStatus.transferring, "Iniciando…", started=True)
-            task = asyncio.create_task(execute(settings, transfer))
-            running[transfer.id] = task
-            task.add_done_callback(lambda _t, i=transfer.id: (running.pop(i, None), wake()))
+            ready.append(transfer)
+
+    starting = ready[:max(0, free)]
+    for transfer in ready[len(starting):]:
+        set_status(transfer, TransferStatus.pending, "Lista; espera a que se libere una conexión.")
+    # One connection each; spare ones go to transfers that can use segments.
+    alloc = [1] * len(starting)
+    eligible = [i for i, t in enumerate(starting) if can_segment(settings, t)]
+    for n in range(max(0, free - len(starting)) if eligible else 0):
+        alloc[eligible[n % len(eligible)]] += 1
+    for transfer, streams in zip(starting, alloc):
+        # Mark it before the task runs so the next cycle never starts it twice.
+        db.update_transfer(transfer.id, TransferStatus.transferring, "Iniciando…", started=True)
+        task = asyncio.create_task(execute(settings, transfer, streams, wake))
+        running[transfer.id] = (task, streams)
+        task.add_done_callback(lambda _t, i=transfer.id: (running.pop(i, None), wake()))
 
 
-async def execute(settings: AppSettings, transfer: TransferRecord) -> None:
+async def execute(settings: AppSettings, transfer: TransferRecord, streams: int = 1,
+                  wake: Callable[[], None] = lambda: None) -> None:
     current = db.get_transfer(transfer.id) or transfer
+
+    def release_extra() -> None:
+        # Fell back to plain rsync (a folder): free the connections it reserved.
+        if transfer.id in running:
+            running[transfer.id] = (running[transfer.id][0], 1)
+            wake()
 
     def on_progress(message: str) -> None:
         # Progress goes straight to the UI; no full-list refetch per percent.
@@ -123,7 +140,7 @@ async def execute(settings: AppSettings, transfer: TransferRecord) -> None:
         events.broker.publish("progress", {"id": transfer.id, "message": message})
 
     try:
-        output = await run_transfer(settings, current, on_progress)
+        output = await run_transfer(settings, current, on_progress, streams, on_fallback=release_extra)
     except TransferError as exc:
         await finish(settings, current, TransferStatus.failed, str(exc))
         return

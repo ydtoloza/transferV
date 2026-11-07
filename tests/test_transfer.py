@@ -62,3 +62,16 @@ def test_summarize_output():
     assert "Ya estaba" in summarize_output("")
     real = "2,140,309,780 100%   41.55MB/s    0:00:49 (xfr#1, to-chk=0/1)"
     assert summarize_output(real) == real
+
+
+def test_segmented_command_orchestrated():
+    from app.transfer import build_segmented_command
+    s = settings(TransferMode.orchestrated_pull)
+    t = record("/mnt/storage/downloads")
+    t.source_path = "/srv/seedbox/It's a Movie.mkv"
+    cmd, env = build_segmented_command(s, t, 4)
+    assert cmd[:2] == ["ssh", "-tt"] and env is None
+    script = cmd[-1]
+    assert "ControlMaster" not in script          # one real TCP connection per segment
+    assert "N=4" in script and ".rsync-partial" in script
+    assert "u@vps" in script

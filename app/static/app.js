@@ -495,7 +495,7 @@ function syncForm() {
   $('#webhookPill').textContent = on ? 'Activadas' : 'Desactivadas';
   $('#webhookPill').classList.toggle('on', on);
   const rs = ($('#s-rsync').value || '').split(' ').slice(0, 2).join(' ');
-  $('#advSummary').textContent = `${$('#s-parallel').value || '—'} simultáneas · cola cada ${$('#s-interval').value || '—'} s · destino cada ${$('#s-verify').value || '—'} min · rsync ${rs}`;
+  $('#advSummary').textContent = `${$('#s-parallel').value || '—'} conexiones · cola cada ${$('#s-interval').value || '—'} s · destino cada ${$('#s-verify').value || '—'} min · rsync ${rs}`;
 }
 
 function setDirty(dirty) {
