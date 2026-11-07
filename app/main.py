@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from app import db, events
 from app.models import ApiMessage, AppSettings, SshSettings, TransferCreate, TransferMode, TransferRecord, TransferStatus
 from app.qbit import QbitClient
-from app.transfer import is_configured, run_ssh
+from app.transfer import is_configured, quote_all, run_ssh, ssh_options, sshpass_prefix, target
 from app.worker import TransferWorker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -163,33 +163,39 @@ async def events_stream(request: Request) -> StreamingResponse:
 
 # ── connection status ──────────────────────────────────────
 
-def hosts_for_mode(settings: AppSettings) -> dict[str, SshSettings]:
-    """Only the hosts this mode actually uses get checked."""
-    if settings.transfer_mode == TransferMode.local_pull:
-        return {"vps": settings.vps_ssh}
-    return {"vps": settings.vps_ssh, "destination": settings.destination_ssh}
-
-
 async def _compute_status() -> dict:
     settings = db.get_settings()
 
     async def check_qbit() -> bool:
         try:
-            async with QbitClient(settings):
+            async with QbitClient(settings) as qbit:
+                await qbit._get("/api/v2/app/version")  # a real authenticated request
                 return True
         except Exception:
             return False
 
-    async def check_ssh(ssh: SshSettings) -> dict:
-        if not is_configured(ssh):
+    async def check_ssh(ssh: SshSettings, via: SshSettings | None = None) -> dict:
+        """Check `ssh` from where the transfer actually connects: directly, or
+        from the `via` host (the second hop of orchestrated/remote-push modes)."""
+        if not is_configured(ssh) or (via is not None and not is_configured(via)):
             return {"ok": False, "error": "Sin configurar"}
-        code, out = await run_ssh(ssh, "true", timeout=20)
+        if via is None:
+            code, out = await run_ssh(ssh, "true", timeout=20)
+        else:
+            hop = quote_all([*sshpass_prefix(ssh, remote=True), "ssh", *ssh_options(ssh, multiplex=False), target(ssh), "true"])
+            code, out = await run_ssh(via, hop, timeout=30)
         return {"ok": code == 0, "error": "" if code == 0 else out[-300:]}
 
-    hosts = hosts_for_mode(settings)
-    results = await asyncio.gather(check_qbit(), *(check_ssh(h) for h in hosts.values()))
+    mode = settings.transfer_mode
+    vps, dest = settings.vps_ssh, settings.destination_ssh
+    checks = {"vps": check_ssh(vps)}
+    if mode == TransferMode.orchestrated_pull:
+        checks = {"destination": check_ssh(dest), "vps": check_ssh(vps, via=dest)}
+    elif mode == TransferMode.remote_push:
+        checks = {"vps": check_ssh(vps), "destination": check_ssh(dest, via=vps)}
+    results = await asyncio.gather(check_qbit(), *checks.values())
     status: dict = {"qbit": results[0], "vps": None, "destination": None}
-    status.update(dict(zip(hosts, results[1:])))
+    status.update(dict(zip(checks, results[1:])))
     return status
 
 

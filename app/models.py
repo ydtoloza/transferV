@@ -38,6 +38,8 @@ class QbitSettings(BaseModel):
     url: str = ""
     username: str = ""
     password: str = ""
+    # qBittorrent >= 5.2: an API key replaces username/password (no login, no ban risk).
+    api_key: str = ""
     downloads_path: str = "/downloads"
     host_downloads_path: str = ""
 

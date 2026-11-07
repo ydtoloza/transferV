@@ -153,7 +153,7 @@ def build_transfer_command(settings: AppSettings, transfer: TransferRecord) -> l
         inner = quote_all([
             *rsync_base(settings, settings.destination_ssh, multiplex=False),
             transfer.source_path,
-            f"{target(settings.destination_ssh)}:{transfer.destination_path}",
+            f"{target(settings.destination_ssh)}:{ensure_trailing_slash(transfer.destination_path)}",
         ])
         return ssh_command(settings.vps_ssh, inner)
     raise TransferError(f"Unsupported transfer mode: {mode}")
