@@ -59,8 +59,9 @@ class AppSettings(BaseModel):
     poll_interval_seconds: int = Field(default=30, ge=10, le=3600)
     # How often to check the destination over SSH (one batched call). 0 = never.
     verify_interval_minutes: int = Field(default=15, ge=0, le=1440)
-    # Each SSH stream tops out at window/RTT; parallel transfers add up.
-    max_parallel_transfers: int = Field(default=3, ge=1, le=8)
+    # Simultaneous SSH connections, shared among transfers. Each one tops out at
+    # window/RTT; a lone big file uses several as parallel segments.
+    max_parallel_transfers: int = Field(default=4, ge=1, le=8)
     destination_path: str = "/media/imports"
     vps_ssh: SshSettings = Field(default_factory=SshSettings)
     destination_ssh: SshSettings = Field(default_factory=SshSettings)

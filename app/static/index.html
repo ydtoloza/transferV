@@ -203,7 +203,7 @@
           <summary><h2>Avanzado</h2><span class="mono faint small" id="advSummary"></span><span class="chev" aria-hidden="true">▾</span></summary>
           <div class="grid grid-auto">
             <div class="field"><label for="s-interval">Revisar cola cada (s)</label><input class="mono" name="poll_interval_seconds" id="s-interval" type="number" min="10" max="3600" /></div>
-            <div class="field"><label for="s-parallel">Transferencias simultáneas</label><input class="mono" name="max_parallel_transfers" id="s-parallel" type="number" min="1" max="8" /><p class="hint">Cada conexión SSH llega a ~11 MB/s por la latencia; varias en paralelo se suman.</p></div>
+            <div class="field"><label for="s-parallel">Conexiones simultáneas</label><input class="mono" name="max_parallel_transfers" id="s-parallel" type="number" min="1" max="8" /><p class="hint">Cada conexión llega a ~11 MB/s por la latencia y se suman. Con varios archivos en cola, una por archivo; un archivo grande solo usa todas (en segmentos).</p></div>
             <div class="field"><label for="s-verify">Verificar destino cada (min)</label><input class="mono" name="verify_interval_minutes" id="s-verify" type="number" min="0" max="1440" /><p class="hint">Una sola conexión SSH por revisión. 0 = desactivado.</p></div>
             <div class="field span-all"><label for="s-rsync">Argumentos de rsync</label><input class="mono" name="rsync_args" id="s-rsync" /></div>
           </div>

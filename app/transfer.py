@@ -193,32 +193,28 @@ def parse_progress(text: str) -> tuple[int, str]:
     return pct, speed
 
 
-async def run_transfer(
-    settings: AppSettings,
-    transfer: TransferRecord,
+async def _stream_process(
+    command: list[str],
+    env: dict[str, str] | None,
     on_progress: Callable[[str], None],
-) -> str:
-    settings = settings.model_copy(update={"rsync_args": ensure_progress_args(settings.rsync_args)})
-    command = build_transfer_command(settings, transfer)
-    # Whichever host the local process authenticates against.
-    local_host = settings.vps_ssh if settings.transfer_mode != TransferMode.orchestrated_pull else settings.destination_ssh
-
+) -> tuple[int, str, str]:
+    """Run a command, report rsync-style progress lines, return (code, output tail, stderr tail)."""
     with tempfile.TemporaryFile() as err:
         try:
             process = await asyncio.create_subprocess_exec(
                 *command,
-                env=local_env(local_host),
+                env=env,
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=err,
+                start_new_session=True,  # own process group: cancel kills every child
             )
         except (OSError, ValueError) as exc:
-            raise TransferError(f"Failed to start rsync: {exc}") from exc
+            raise TransferError(f"No se pudo iniciar la transferencia: {exc}") from exc
 
         tail: list[str] = []
         last_pct, last_emit = -1, 0.0
         buffer = b""
-
         try:
             while True:
                 chunk = await process.stdout.read(65536)
@@ -240,21 +236,128 @@ async def run_transfer(
                         on_progress(f"{pct}%" + (f" · {speed}" if speed else ""))
             await process.wait()
         except asyncio.CancelledError:
-            # Shutdown: stop rsync now; the restart requeues and resumes it.
-            with contextlib.suppress(ProcessLookupError):
-                process.kill()
+            # Shutdown: stop it now (whole group); the restart requeues and resumes it.
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(process.pid, 9)
             raise
 
         if buffer.strip():
             tail.append(buffer.decode("utf-8", errors="replace").strip())
-        output = "\n".join(tail[-25:])
-        if process.returncode != 0:
-            errors = _read_tail(err)
-            raise TransferError(
-                "\n".join(x for x in (output, errors) if x)
-                or f"rsync exited with code {process.returncode}"
-            )
-        return output
+        return process.returncode, "\n".join(tail[-25:]), _read_tail(err)
+
+
+async def run_transfer(
+    settings: AppSettings,
+    transfer: TransferRecord,
+    on_progress: Callable[[str], None],
+    streams: int = 1,
+    on_fallback: Callable[[], None] = lambda: None,
+) -> str:
+    """Copy one torrent. With streams > 1, a single large file is pulled in parallel
+    segments (one SSH connection each); anything else goes through rsync."""
+    if streams > 1 and can_segment(settings, transfer):
+        command, env = build_segmented_command(settings, transfer, streams)
+        code, output, errors = await _stream_process(command, env, on_progress)
+        if code == 0:
+            return output
+        if code != SEGMENT_FALLBACK:
+            raise TransferError("\n".join(x for x in (output, errors) if x) or f"Transferencia por segmentos falló ({code})")
+        # A folder, or smaller than it looked: plain rsync below, one connection.
+        on_fallback()
+
+    settings = settings.model_copy(update={"rsync_args": ensure_progress_args(settings.rsync_args)})
+    command = build_transfer_command(settings, transfer)
+    # Whichever host the local process authenticates against.
+    local_host = settings.vps_ssh if settings.transfer_mode != TransferMode.orchestrated_pull else settings.destination_ssh
+    code, output, errors = await _stream_process(command, local_env(local_host), on_progress)
+    if code != 0:
+        raise TransferError("\n".join(x for x in (output, errors) if x) or f"rsync exited with code {code}")
+    return output
+
+
+# ── segmented pull (one big file, N SSH connections) ───────
+
+SEGMENT_MODES = (TransferMode.local_pull, TransferMode.orchestrated_pull)
+SEGMENT_MIN_BYTES = 1 << 30
+SEGMENT_FALLBACK = 99  # script exit code: "not a single big file, use rsync"
+
+_SEGMENT_SCRIPT = r"""
+set -u -o pipefail
+trap 'trap - EXIT; kill 0 2>/dev/null' EXIT HUP INT TERM
+SSH=(__SSH__)
+N=__N__
+INFO=$("${SSH[@]}" __STAT__) || { echo "No se pudo leer el origen en el servidor origen" >&2; exit 3; }
+[ "$INFO" = dir ] && { trap - EXIT; exit __FALLBACK__; }
+SIZE=${INFO%% *}; MTIME=${INFO##* }
+[ "$SIZE" -lt __MIN__ ] && { trap - EXIT; exit __FALLBACK__; }
+mkdir -p __PARTDIR__ || exit 4
+TMP=__TMP__
+: > "$TMP" || exit 4
+CH=$(( SIZE / 1048576 / N + 1 ))
+pids=()
+for i in $(seq 0 $((N - 1))); do
+  ( "${SSH[@]}" "__DD__ $((i * CH)) $CH" | dd of="$TMP" bs=1M seek=$((i * CH)) conv=notrunc iflag=fullblock status=none ) &
+  pids+=($!)
+done
+start=$(date +%s); last=0; lt=$start
+while :; do
+  alive=0
+  for p in "${pids[@]}"; do kill -0 "$p" 2>/dev/null && alive=1; done
+  done_b=$(du -B1 "$TMP" 2>/dev/null | cut -f1); done_b=${done_b:-0}
+  now=$(date +%s); dt=$(( now - lt )); [ "$dt" -lt 1 ] && dt=1
+  pct=$(( done_b * 100 / SIZE )); [ "$pct" -gt 99 ] && pct=99
+  echo "$done_b $pct% $(awk -v r=$(( (done_b - last) / dt )) 'BEGIN{printf "%.2f", r/1048576}')MB/s"
+  last=$done_b; lt=$now
+  [ "$alive" = 0 ] && break
+  sleep 2
+done
+rc=0
+for p in "${pids[@]}"; do wait "$p" || rc=1; done
+[ "$rc" = 0 ] || { echo "Falló uno de los segmentos" >&2; exit 5; }
+GOT=$(stat -c %s "$TMP")
+[ "$GOT" = "$SIZE" ] || { echo "Tamaño incorrecto: $GOT de $SIZE bytes" >&2; exit 6; }
+touch -d "@$MTIME" "$TMP" && mv -f "$TMP" __FINAL__ || exit 7
+secs=$(( $(date +%s) - start )); [ "$secs" -lt 1 ] && secs=1
+trap - EXIT
+echo "$SIZE 100% $(awk -v r=$(( SIZE / secs )) 'BEGIN{printf "%.2f", r/1048576}')MB/s ${secs}s (xfr#1, $N segmentos)"
+"""
+
+
+def can_segment(settings: AppSettings, transfer: TransferRecord) -> bool:
+    return settings.transfer_mode in SEGMENT_MODES and transfer.size >= SEGMENT_MIN_BYTES
+
+
+def build_segmented_command(settings: AppSettings, transfer: TransferRecord, streams: int) -> tuple[list[str], dict | None]:
+    """Command (and local env) that pulls one file in `streams` byte ranges in parallel.
+
+    It runs where rsync would run in that mode: here (local pull) or on the
+    destination (orchestrated). Each segment opens its own SSH connection (no
+    multiplexing), because the per-connection window is exactly the limit.
+    """
+    vps = settings.vps_ssh
+    remote = settings.transfer_mode == TransferMode.orchestrated_pull
+    src = transfer.source_path.rstrip("/")
+    name = posixpath.basename(src)
+    dest_dir = transfer.destination_path.rstrip("/") or "/"
+    qsrc = shlex.quote(src)
+    ssh_words = [*sshpass_prefix(vps, remote=remote), "ssh", *ssh_options(vps, multiplex=False), target(vps)]
+    stat_cmd = f"if [ -f {qsrc} ]; then stat -c '%s %Y' -- {qsrc}; else echo dir; fi"
+    dd_cmd = "sh -c " + shlex.quote('dd if="$0" bs=1M skip="$1" count="$2" status=none') + " " + qsrc
+    script = (
+        _SEGMENT_SCRIPT
+        .replace("__SSH__", quote_all(ssh_words))
+        .replace("__N__", str(max(2, streams)))
+        .replace("__STAT__", shlex.quote(stat_cmd))
+        .replace("__FALLBACK__", str(SEGMENT_FALLBACK))
+        .replace("__MIN__", str(SEGMENT_MIN_BYTES))
+        .replace("__PARTDIR__", shlex.quote(f"{dest_dir}/.rsync-partial"))
+        .replace("__TMP__", shlex.quote(f"{dest_dir}/.rsync-partial/{name}.tvseg"))
+        .replace("__DD__", dd_cmd.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$"))
+        .replace("__FINAL__", shlex.quote(f"{dest_dir}/{name}"))
+    )
+    if remote:
+        return ssh_command(settings.destination_ssh, "bash -c " + shlex.quote(script), tty=True), None
+    return ["bash", "-c", script], local_env(vps)
 
 
 XFR_RE = re.compile(r"xfr#(\d+)")
