@@ -10,4 +10,16 @@ services:
       - ${TRANSFERV_DATA_DIR:-./data}:/data
       # Mount keys here if you want to reference them in settings.
       # - ~/.ssh:/keys:ro
+    # SSH control sockets live here: RAM, not disk.
+    tmpfs:
+      - /tmp
     restart: unless-stopped
+    stop_grace_period: 10s
+    # Generous caps; idle usage is far below. Raise if you transfer huge trees.
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

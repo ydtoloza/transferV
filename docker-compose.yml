@@ -1,5 +1,8 @@
+# Local / development: builds the image from this checkout.
+#   docker compose up --build
 services:
   transferv:
+    build: .
     image: ghcr.io/ydtoloza/transferv:latest
     container_name: transferv
     ports:
@@ -10,4 +13,15 @@ services:
       - ${TRANSFERV_DATA_DIR:-./data}:/data
       # Para montar llaves SSH: descomenta y ajusta la ruta
       # - ~/.ssh:/keys:ro
+    # SSH control sockets live here: RAM, not disk.
+    tmpfs:
+      - /tmp
     restart: unless-stopped
+    stop_grace_period: 10s
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"

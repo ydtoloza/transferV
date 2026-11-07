@@ -17,8 +17,9 @@ def utc_now() -> str:
 
 @contextmanager
 def connect() -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(database_path())
+    conn = sqlite3.connect(database_path(), timeout=10)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA synchronous=NORMAL")
     try:
         yield conn
         conn.commit()
@@ -28,6 +29,7 @@ def connect() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with connect() as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS settings (
@@ -62,6 +64,9 @@ def init_db() -> None:
             WHERE status IN ('pending', 'waiting', 'transferring')
             """
         )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status, torrent_hash)"
+        )
 
 
 def get_settings() -> AppSettings:
@@ -92,13 +97,33 @@ def row_to_transfer(row: sqlite3.Row) -> TransferRecord:
     return TransferRecord(**data)
 
 
-def list_transfers(limit: int = 5000) -> list[TransferRecord]:
+def list_transfers(limit: int = 1000) -> list[TransferRecord]:
     with connect() as conn:
         rows = conn.execute(
             "SELECT * FROM transfers ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
     return [row_to_transfer(row) for row in rows]
+
+
+def list_by_status(*statuses: TransferStatus) -> list[TransferRecord]:
+    marks = ",".join("?" * len(statuses))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM transfers WHERE status IN ({marks}) ORDER BY id ASC",
+            [s.value for s in statuses],
+        ).fetchall()
+    return [row_to_transfer(row) for row in rows]
+
+
+def hashes_with_status(*statuses: TransferStatus) -> set[str]:
+    marks = ",".join("?" * len(statuses))
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT DISTINCT torrent_hash FROM transfers WHERE status IN ({marks})",
+            [s.value for s in statuses],
+        ).fetchall()
+    return {row["torrent_hash"] for row in rows}
 
 
 def active_hashes() -> set[str]:
@@ -148,6 +173,7 @@ def update_transfer(
     message: str = "",
     started: bool = False,
     completed: bool = False,
+    publish: bool = True,
 ) -> None:
     now = utc_now()
     fields = ["status = ?", "message = ?", "updated_at = ?"]
@@ -164,7 +190,8 @@ def update_transfer(
             f"UPDATE transfers SET {', '.join(fields)} WHERE id = ?",
             params,
         )
-    events.broker.publish("transfers")
+    if publish:
+        events.broker.publish("transfers")
 
 
 def delete_transfer(transfer_id: int) -> bool:
@@ -202,6 +229,19 @@ def upsert_completed_transfer(item: TransferCreate, settings: AppSettings) -> Tr
             return None
 
         now = utc_now()
+        revived = conn.execute(
+            """
+            UPDATE transfers SET status = 'completed', updated_at = ?,
+                message = 'Encontrado nuevamente en el destino'
+            WHERE id = (SELECT id FROM transfers WHERE torrent_hash = ? AND status = 'missing'
+                        ORDER BY id DESC LIMIT 1)
+            """,
+            (now, item.torrent_hash),
+        )
+        if revived.rowcount:
+            events.broker.publish("transfers")
+            return None
+
         destination = item.destination_path or settings.destination_path
         try:
             conn.execute(

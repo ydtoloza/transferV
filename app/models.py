@@ -55,6 +55,8 @@ class WebhookSettings(BaseModel):
 class AppSettings(BaseModel):
     transfer_mode: TransferMode = TransferMode.local_pull
     poll_interval_seconds: int = Field(default=30, ge=10, le=3600)
+    # How often to check the destination over SSH (one batched call). 0 = never.
+    verify_interval_minutes: int = Field(default=15, ge=0, le=1440)
     destination_path: str = "/media/imports"
     vps_ssh: SshSettings = Field(default_factory=SshSettings)
     destination_ssh: SshSettings = Field(default_factory=SshSettings)

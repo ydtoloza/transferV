@@ -1,167 +1,181 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from contextlib import suppress
 
 from app import db, events
-from app.models import TransferStatus, TransferRecord
+from app.models import AppSettings, TransferCreate, TransferRecord, TransferStatus
 from app.qbit import QbitClient, is_complete
-from app.transfer import TransferError, run_transfer, verify_destination
+from app.transfer import TransferError, destination_file, paths_exist, run_transfer
 from app.webhook import send_webhook
-import time
+
+log = logging.getLogger("transferv.worker")
+
+ACTIVE = (TransferStatus.pending, TransferStatus.waiting, TransferStatus.transferring)
 
 
 class TransferWorker:
+    """Single background loop: processes the queue, then (rarely) verifies the
+    destination with one batched SSH call. Sleeps poll_interval or until woken."""
+
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
-        self._stop = asyncio.Event()
+        self._wake = asyncio.Event()
+        self._last_verify = 0.0
 
     def start(self) -> None:
-        if self._task and not self._task.done():
-            return
-        self._task = asyncio.create_task(self._run())
+        if not self._task or self._task.done():
+            self._task = asyncio.create_task(self._run())
+
+    def wake(self, verify: bool = False) -> None:
+        if verify:
+            self._last_verify = 0.0
+        self._wake.set()
 
     async def stop(self) -> None:
-        self._stop.set()
         if self._task:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._task
 
     async def _run(self) -> None:
-        last_verify = 0.0
-        while not self._stop.is_set():
+        while True:
             settings = db.get_settings()
             try:
-                await process_next_transfer()
+                await process_queue(settings)
             except Exception:
-                pass
-                
-            # Verify files every 1 minute
-            if time.time() - last_verify > 60:
-                try:
-                    await verify_existing_torrents(settings)
-                except Exception:
-                    pass
-                try:
-                    await verify_missing_transfers(settings)
-                except Exception:
-                    pass
-                last_verify = time.time()
-                
-            await asyncio.sleep(settings.poll_interval_seconds)
+                log.exception("Queue processing failed")
 
-async def verify_missing_transfers(settings) -> None:
-    transfers = db.list_transfers(limit=1000)
-    completed = [t for t in transfers if t.status == TransferStatus.completed]
-    for t in completed:
-        exists = await verify_destination(settings, t)
-        if not exists:
-            db.update_transfer(t.id, TransferStatus.missing, "El archivo ya no existe en el destino")
+            interval = settings.verify_interval_minutes * 60
+            if interval and time.monotonic() - self._last_verify >= interval:
+                self._last_verify = time.monotonic()
+                try:
+                    await verify_destination(settings)
+                except Exception:
+                    log.exception("Destination verification failed")
 
-async def verify_existing_torrents(settings) -> None:
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._wake.wait(), settings.poll_interval_seconds)
+            self._wake.clear()
+
+
+# ── queue ──────────────────────────────────────────────────
+
+def set_status(transfer: TransferRecord, status: TransferStatus, message: str) -> None:
+    """Write only when something changed, so idle cycles don't spam SSE clients."""
+    if transfer.status != status or transfer.message != message:
+        db.update_transfer(transfer.id, status, message)
+
+
+async def process_queue(settings: AppSettings) -> None:
+    queued = db.list_by_status(TransferStatus.pending, TransferStatus.waiting)
+    if not queued:
+        return
+
     try:
         async with QbitClient(settings) as qbit:
-            torrents = await qbit.torrents()
-    except Exception:
+            torrents = {t.hash: t for t in await qbit.torrents(hashes=[t.torrent_hash for t in queued])}
+    except Exception as exc:
+        for transfer in queued:
+            set_status(transfer, TransferStatus.waiting, f"Esperando a qBittorrent: {exc}")
         return
 
-    transfers = db.list_transfers(limit=5000)
-    completed_hashes = {t.torrent_hash for t in transfers if t.status == TransferStatus.completed}
-    
-    unmarked = [t for t in torrents if is_complete(t) and t.hash not in completed_hashes]
-    if not unmarked:
-        return
-
-    for torrent in unmarked:
-        try:
-            destination = settings.destination_path
-            dummy = TransferRecord(
-                id=0,
-                torrent_hash=torrent.hash,
-                torrent_name=torrent.name,
-                source_path=torrent.content_path,
-                destination_path=destination,
-                size=torrent.size,
-                status=TransferStatus.pending,
-                created_at="", updated_at=""
+    # Every ready transfer runs this cycle; incomplete ones no longer block the queue.
+    for transfer in queued:
+        torrent = torrents.get(transfer.torrent_hash)
+        if not torrent:
+            await finish(settings, transfer, TransferStatus.failed, "El torrent ya no existe.")
+        elif not is_complete(torrent):
+            set_status(
+                transfer,
+                TransferStatus.waiting,
+                f"Esperando que termine la descarga: {round(torrent.progress * 100, 1)}%",
             )
-            exists = await verify_destination(settings, dummy)
-            if exists:
-                item = TransferCreate(
+        else:
+            await execute(db.get_settings(), transfer)
+
+
+async def execute(settings: AppSettings, transfer: TransferRecord) -> None:
+    db.update_transfer(transfer.id, TransferStatus.transferring, "Iniciando…", started=True)
+    current = db.get_transfer(transfer.id) or transfer
+
+    def on_progress(message: str) -> None:
+        # Progress goes straight to the UI; no full-list refetch per percent.
+        db.update_transfer(transfer.id, TransferStatus.transferring, message, publish=False)
+        events.broker.publish("progress", {"id": transfer.id, "message": message})
+
+    try:
+        output = await run_transfer(settings, current, on_progress)
+    except TransferError as exc:
+        await finish(settings, current, TransferStatus.failed, str(exc))
+        return
+    await finish(settings, current, TransferStatus.completed, output or "Transferencia completada.")
+
+
+async def finish(settings: AppSettings, transfer: TransferRecord, status: TransferStatus, message: str) -> None:
+    db.update_transfer(transfer.id, status, message, completed=True)
+    updated = db.get_transfer(transfer.id) or transfer
+    try:
+        await send_webhook(settings, updated, status, message)
+    except Exception:
+        log.exception("Webhook failed")
+    events.broker.publish("torrents")
+
+
+# ── destination verification ───────────────────────────────
+
+async def verify_destination(settings: AppSettings) -> None:
+    """One SSH round-trip checks every known transfer plus untracked finished torrents."""
+    records = db.list_by_status(TransferStatus.completed, TransferStatus.missing)
+    known = db.hashes_with_status(TransferStatus.completed, TransferStatus.missing, *ACTIVE)
+
+    candidates = []
+    try:
+        async with QbitClient(settings) as qbit:
+            candidates = [
+                t for t in await qbit.torrents()
+                if is_complete(t) and t.hash not in known and t.content_path
+            ]
+    except Exception as exc:
+        log.warning("qBittorrent unavailable during verification: %s", exc)
+
+    record_paths = {r.id: destination_file(r.source_path, r.destination_path) for r in records}
+    candidate_paths = {t.hash: destination_file(t.content_path, settings.destination_path) for t in candidates}
+    if not record_paths and not candidate_paths:
+        return
+
+    exists = await paths_exist(settings, [*record_paths.values(), *candidate_paths.values()])
+    if exists is None:
+        # Connection failed: do NOT mark anything missing. Try again next interval.
+        log.warning("Destination check skipped: SSH connection failed")
+        return
+
+    changed = False
+    for record in records:
+        found = exists.get(record_paths[record.id])
+        if record.status == TransferStatus.completed and found is False:
+            db.update_transfer(record.id, TransferStatus.missing, "El archivo ya no existe en el destino", publish=False)
+            changed = True
+        elif record.status == TransferStatus.missing and found:
+            db.update_transfer(record.id, TransferStatus.completed, "Encontrado nuevamente en el destino", publish=False)
+            changed = True
+
+    for torrent in candidates:
+        if exists.get(candidate_paths[torrent.hash]):
+            db.upsert_completed_transfer(
+                TransferCreate(
                     torrent_hash=torrent.hash,
                     torrent_name=torrent.name,
                     source_path=torrent.content_path,
-                    destination_path=destination,
+                    destination_path=settings.destination_path,
                     size=torrent.size,
-                )
-                db.upsert_completed_transfer(item, settings)
-        except Exception:
-            continue
-
-
-_processing_lock = asyncio.Lock()
-
-async def process_next_transfer() -> None:
-    if _processing_lock.locked():
-        return
-    async with _processing_lock:
-        transfer = db.next_pending_transfer()
-        if not transfer:
-            return
-
-        settings = db.get_settings()
-        try:
-            async with QbitClient(settings) as qbit:
-                torrent = await qbit.torrent(transfer.torrent_hash)
-        except Exception as exc:
-            db.update_transfer(
-                transfer.id,
-                TransferStatus.waiting,
-                f"Waiting for qBittorrent: {exc}",
+                ),
+                settings,
             )
-            return
+            changed = True
 
-        if not torrent:
-            db.update_transfer(
-                transfer.id,
-                TransferStatus.failed,
-                "Torrent no longer exists.",
-                completed=True,
-            )
-            updated = db.get_transfer(transfer.id) or transfer
-            await notify(settings, updated, TransferStatus.failed, "Torrent no longer exists.")
-            events.broker.publish("torrents")
-            return
-
-        if not is_complete(torrent):
-            percent = round(torrent.progress * 100, 2)
-            db.update_transfer(
-                transfer.id,
-                TransferStatus.waiting,
-                f"Waiting for torrent completion: {percent}%",
-            )
-            return
-
-        db.update_transfer(transfer.id, TransferStatus.transferring, "Transfer started.", started=True)
-        current = db.get_transfer(transfer.id) or transfer
-        try:
-            output = await run_transfer(settings, current)
-        except TransferError as exc:
-            message = str(exc)
-            db.update_transfer(transfer.id, TransferStatus.failed, message, completed=True)
-            updated = db.get_transfer(transfer.id) or current
-            await notify(settings, updated, TransferStatus.failed, message)
-            events.broker.publish("torrents")
-            return
-
-        message = output or "Transfer completed."
-        db.update_transfer(transfer.id, TransferStatus.completed, message, completed=True)
-        updated = db.get_transfer(transfer.id) or current
-        await notify(settings, updated, TransferStatus.completed, message)
+    if changed:
+        events.broker.publish("transfers")
         events.broker.publish("torrents")
-
-
-async def notify(settings, transfer, status: TransferStatus, message: str) -> None:
-    with suppress(Exception):
-        await send_webhook(settings, transfer, status, message)
