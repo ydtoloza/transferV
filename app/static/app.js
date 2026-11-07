@@ -89,7 +89,8 @@ const ICON = {
 
 // ── Derived data ───────────────────────────────────────────
 const ACTIVE = ['pending', 'waiting', 'transferring'];
-const running = () => state.transfers.find((t) => t.status === 'transferring');
+const runningAll = () => state.transfers.filter((t) => t.status === 'transferring').sort((a, b) => a.id - b.id);
+const running = () => runningAll()[0];
 const waiting = () => state.transfers.filter((t) => t.status === 'pending' || t.status === 'waiting').sort((a, b) => a.id - b.id);
 const activeByHash = () => new Map(state.transfers.filter((t) => ACTIVE.includes(t.status)).map((t) => [t.torrent_hash, t]));
 
@@ -157,9 +158,11 @@ function renderLive() {
   strip.hidden = !t || state.tab === 'queue' || state.tab === 'settings';
   strip.classList.toggle('narrow', state.tab === 'history');
   if (!t) return;
+  const all = runningAll();
   const pct = pctOf(t.message);
-  const speed = speedOf(t.message);
-  $('#liveName').textContent = t.torrent_name;
+  // With several in flight, show the first plus the combined speed.
+  const speed = all.reduce((sum, r) => sum + speedOf(r.message), 0);
+  $('#liveName').textContent = all.length > 1 ? `${t.torrent_name} (+${all.length - 1} más)` : t.torrent_name;
   $('#liveDest').textContent = `→ ${t.destination_path}`;
   $('#liveMeta').textContent = [`${pct}%`, speed ? `${bytes(speed)}/s` : '', t.started_at ? duration(since(t.started_at)) : ''].filter(Boolean).join(' · ');
   $('#liveBar').style.width = `${pct}%`;
@@ -268,27 +271,34 @@ function renderQueue() {
   const t = running();
   const wait = waiting();
   const count = (s) => state.transfers.filter((x) => x.status === s).length;
-  $('#statRunning').textContent = t ? 1 : 0;
+  const live = runningAll();
+  $('#statRunning').textContent = live.length;
   $('#statWaiting').textContent = wait.length;
   $('#statDone').textContent = count('completed');
   $('#statFailed').textContent = count('failed');
 
-  $('#nowCard').hidden = !t;
-  if (t) {
-    const pct = pctOf(t.message);
-    const speed = speedOf(t.message);
-    const doneBytes = t.size * pct / 100;
-    $('#nowName').textContent = t.torrent_name;
-    $('#nowPath').textContent = `${t.source_path} → ${t.destination_path}`;
-    $('#nowBar').style.width = `${pct}%`;
-    $('#nowPct').textContent = `${pct}%`;
-    $('#nowSpeed').textContent = speed ? `${bytes(speed)}/s` : 'iniciando…';
-    $('#nowBytes').textContent = t.size ? `${bytes(doneBytes)} de ${bytes(t.size)}` : '';
-    $('#nowEta').textContent = speed && t.size ? `queda ~${duration((t.size - doneBytes) / speed)}` : '';
-    $('#nowElapsed').textContent = t.started_at ? `iniciada hace ${duration(since(t.started_at))}` : '';
-  }
+  $('#nowList').innerHTML = live.map((r) => {
+    const pct = pctOf(r.message);
+    const speed = speedOf(r.message);
+    const doneBytes = r.size * pct / 100;
+    const eta = speed && r.size ? `queda ~${duration((r.size - doneBytes) / speed)}` : '';
+    return `<section class="now">
+      <div class="now-top">
+        <span class="live-label"><span class="pulse"></span>Transfiriendo ahora</span>
+        <span class="mono muted small">${r.started_at ? `iniciada hace ${duration(since(r.started_at))}` : ''}</span>
+      </div>
+      <div><h2>${esc(r.torrent_name)}</h2><p class="mono muted small wrap">${esc(r.source_path)} → ${esc(r.destination_path)}</p></div>
+      <div class="bar bar-lg"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="mono now-meta">
+        <strong>${pct}%</strong>
+        <span class="muted">${speed ? `${bytes(speed)}/s` : 'iniciando…'}</span>
+        <span class="muted">${r.size ? `${bytes(doneBytes)} de ${bytes(r.size)}` : ''}</span>
+        <span class="muted">${eta}</span>
+      </div>
+    </section>`;
+  }).join('');
 
-  const offset = t ? 2 : 1;
+  const offset = live.length + 1;
   $('#waitingList').innerHTML = wait.map((w, i) => {
     const isWaiting = w.status === 'waiting' && w.message;
     return `<li>
@@ -485,7 +495,7 @@ function syncForm() {
   $('#webhookPill').textContent = on ? 'Activadas' : 'Desactivadas';
   $('#webhookPill').classList.toggle('on', on);
   const rs = ($('#s-rsync').value || '').split(' ').slice(0, 2).join(' ');
-  $('#advSummary').textContent = `cola cada ${$('#s-interval').value || '—'} s · destino cada ${$('#s-verify').value || '—'} min · rsync ${rs}`;
+  $('#advSummary').textContent = `${$('#s-parallel').value || '—'} simultáneas · cola cada ${$('#s-interval').value || '—'} s · destino cada ${$('#s-verify').value || '—'} min · rsync ${rs}`;
 }
 
 function setDirty(dirty) {

@@ -31,6 +31,11 @@ class _Session:
         self.failed_at = 0.0
         self.error = ""
         self.lock = asyncio.Lock()
+        # sync/maindata state: after the first full snapshot qBittorrent only
+        # sends what changed since `rid`.
+        self.rid = 0
+        self.raw: dict[str, dict] = {}
+        self.sync_lock = asyncio.Lock()
 
 
 _sessions: dict[tuple[str, str, str, str], _Session] = {}
@@ -109,14 +114,37 @@ class QbitClient:
         queued_hashes: set[str] | None = None,
         hashes: list[str] | None = None,
     ) -> list[Torrent]:
-        params = {"hashes": "|".join(hashes)} if hashes else None
-        response = await self._get("/api/v2/torrents/info", params)
+        raws = await self._raw_torrents()
+        if hashes:
+            wanted = set(hashes)
+            raws = [r for r in raws if r.get("hash") in wanted]
         queued_hashes = queued_hashes or set()
         items = await asyncio.gather(*(
             self._build_torrent(raw, raw.get("hash", "") in queued_hashes)
-            for raw in response.json()
+            for raw in raws
         ))
         return sorted(items, key=lambda t: t.added_on, reverse=True)
+
+    async def _raw_torrents(self) -> list[dict]:
+        """Current torrent list, kept up to date with incremental sync/maindata."""
+        s = self.session
+        async with s.sync_lock:
+            try:
+                data = (await self._get("/api/v2/sync/maindata", {"rid": s.rid})).json()
+                if data.get("full_update"):
+                    s.raw = {}
+                for torrent_hash, fields in (data.get("torrents") or {}).items():
+                    s.raw.setdefault(torrent_hash, {"hash": torrent_hash}).update(fields)
+                for torrent_hash in data.get("torrents_removed") or []:
+                    s.raw.pop(torrent_hash, None)
+                s.rid = int(data.get("rid", 0))
+                return [dict(r) for r in s.raw.values()]
+            except QbitError:
+                raise
+            except (httpx.HTTPError, ValueError, TypeError, AttributeError):
+                # Older qBittorrent or a hiccup: start over with the plain list.
+                s.rid, s.raw = 0, {}
+                return (await self._get("/api/v2/torrents/info")).json()
 
     async def _build_torrent(self, raw: dict, queued: bool = False) -> Torrent:
         torrent_hash = raw.get("hash", "")

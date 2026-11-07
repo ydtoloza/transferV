@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+
+[tool.ruff.lint]
+# Real bugs only: syntax errors, undefined names, unused imports/variables, import order.
+select = ["E9", "F", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

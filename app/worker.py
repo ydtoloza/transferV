@@ -4,11 +4,12 @@ import asyncio
 import logging
 import time
 from contextlib import suppress
+from typing import Callable
 
 from app import db, events
 from app.models import AppSettings, TransferCreate, TransferRecord, TransferStatus
 from app.qbit import QbitClient, is_complete
-from app.transfer import TransferError, destination_file, paths_exist, run_transfer
+from app.transfer import TransferError, destination_file, paths_exist, run_transfer, summarize_output
 from app.webhook import send_webhook
 
 log = logging.getLogger("transferv.worker")
@@ -17,8 +18,9 @@ ACTIVE = (TransferStatus.pending, TransferStatus.waiting, TransferStatus.transfe
 
 
 class TransferWorker:
-    """Single background loop: processes the queue, then (rarely) verifies the
-    destination with one batched SSH call. Sleeps poll_interval or until woken."""
+    """Background loop: starts ready transfers (up to max_parallel_transfers at
+    once, each in its own task), then (rarely) verifies the destination with one
+    batched SSH call. Sleeps poll_interval or until woken."""
 
     def __init__(self) -> None:
         self._task: asyncio.Task | None = None
@@ -35,6 +37,8 @@ class TransferWorker:
         self._wake.set()
 
     async def stop(self) -> None:
+        for task in list(running.values()):
+            task.cancel()
         if self._task:
             self._task.cancel()
             with suppress(asyncio.CancelledError):
@@ -44,7 +48,7 @@ class TransferWorker:
         while True:
             settings = db.get_settings()
             try:
-                await process_queue(settings)
+                await process_queue(settings, self.wake)
             except Exception:
                 log.exception("Queue processing failed")
 
@@ -63,14 +67,19 @@ class TransferWorker:
 
 # ── queue ──────────────────────────────────────────────────
 
+# transfer id -> task running its rsync. Each SSH stream tops out around
+# window/RTT (~11 MiB/s at 170 ms), so parallel transfers add up.
+running: dict[int, asyncio.Task] = {}
+
+
 def set_status(transfer: TransferRecord, status: TransferStatus, message: str) -> None:
     """Write only when something changed, so idle cycles don't spam SSE clients."""
     if transfer.status != status or transfer.message != message:
         db.update_transfer(transfer.id, status, message)
 
 
-async def process_queue(settings: AppSettings) -> None:
-    queued = db.list_by_status(TransferStatus.pending, TransferStatus.waiting)
+async def process_queue(settings: AppSettings, wake: Callable[[], None] = lambda: None) -> None:
+    queued = [t for t in db.list_by_status(TransferStatus.pending, TransferStatus.waiting) if t.id not in running]
     if not queued:
         return
 
@@ -82,7 +91,8 @@ async def process_queue(settings: AppSettings) -> None:
             set_status(transfer, TransferStatus.waiting, f"Esperando a qBittorrent: {exc}")
         return
 
-    # Every ready transfer runs this cycle; incomplete ones no longer block the queue.
+    slots = max(1, settings.max_parallel_transfers) - len(running)
+    # Ready transfers start as slots free up; incomplete ones never block the queue.
     for transfer in queued:
         torrent = torrents.get(transfer.torrent_hash)
         if not torrent:
@@ -93,12 +103,18 @@ async def process_queue(settings: AppSettings) -> None:
                 TransferStatus.waiting,
                 f"Esperando que termine la descarga: {round(torrent.progress * 100, 1)}%",
             )
+        elif slots <= 0:
+            set_status(transfer, TransferStatus.pending, "Lista; espera a que termine otra transferencia.")
         else:
-            await execute(db.get_settings(), transfer)
+            slots -= 1
+            # Mark it before the task runs so the next cycle never starts it twice.
+            db.update_transfer(transfer.id, TransferStatus.transferring, "Iniciando…", started=True)
+            task = asyncio.create_task(execute(settings, transfer))
+            running[transfer.id] = task
+            task.add_done_callback(lambda _t, i=transfer.id: (running.pop(i, None), wake()))
 
 
 async def execute(settings: AppSettings, transfer: TransferRecord) -> None:
-    db.update_transfer(transfer.id, TransferStatus.transferring, "Iniciando…", started=True)
     current = db.get_transfer(transfer.id) or transfer
 
     def on_progress(message: str) -> None:
@@ -111,7 +127,11 @@ async def execute(settings: AppSettings, transfer: TransferRecord) -> None:
     except TransferError as exc:
         await finish(settings, current, TransferStatus.failed, str(exc))
         return
-    await finish(settings, current, TransferStatus.completed, output or "Transferencia completada.")
+    except Exception as exc:  # never leave a record stuck in "transferring"
+        log.exception("Transfer %s crashed", transfer.id)
+        await finish(settings, current, TransferStatus.failed, f"Error interno: {exc}")
+        return
+    await finish(settings, current, TransferStatus.completed, summarize_output(output))
 
 
 async def finish(settings: AppSettings, transfer: TransferRecord, status: TransferStatus, message: str) -> None:
