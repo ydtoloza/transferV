@@ -116,23 +116,7 @@
         <div class="stat"><span>Con error</span><strong class="mono bad" id="statFailed">0</strong></div>
       </div>
 
-      <section class="now" id="nowCard" aria-labelledby="nowName" hidden>
-        <div class="now-top">
-          <span class="live-label"><span class="pulse"></span>Transfiriendo ahora</span>
-          <span class="mono muted small" id="nowElapsed"></span>
-        </div>
-        <div>
-          <h2 id="nowName"></h2>
-          <p class="mono muted small wrap" id="nowPath"></p>
-        </div>
-        <div class="bar bar-lg"><div class="bar-fill" id="nowBar"></div></div>
-        <div class="mono now-meta">
-          <strong id="nowPct">0%</strong>
-          <span class="muted" id="nowSpeed"></span>
-          <span class="muted" id="nowBytes"></span>
-          <span class="muted" id="nowEta"></span>
-        </div>
-      </section>
+      <div class="stack" id="nowList" aria-label="Transfiriendo ahora"></div>
 
       <section aria-labelledby="waitingTitle" class="stack">
         <h2 class="eyebrow" id="waitingTitle">En espera</h2>
@@ -219,6 +203,7 @@
           <summary><h2>Avanzado</h2><span class="mono faint small" id="advSummary"></span><span class="chev" aria-hidden="true">▾</span></summary>
           <div class="grid grid-auto">
             <div class="field"><label for="s-interval">Revisar cola cada (s)</label><input class="mono" name="poll_interval_seconds" id="s-interval" type="number" min="10" max="3600" /></div>
+            <div class="field"><label for="s-parallel">Transferencias simultáneas</label><input class="mono" name="max_parallel_transfers" id="s-parallel" type="number" min="1" max="8" /><p class="hint">Cada conexión SSH llega a ~11 MB/s por la latencia; varias en paralelo se suman.</p></div>
             <div class="field"><label for="s-verify">Verificar destino cada (min)</label><input class="mono" name="verify_interval_minutes" id="s-verify" type="number" min="0" max="1440" /><p class="hint">Una sola conexión SSH por revisión. 0 = desactivado.</p></div>
             <div class="field span-all"><label for="s-rsync">Argumentos de rsync</label><input class="mono" name="rsync_args" id="s-rsync" /></div>
           </div>

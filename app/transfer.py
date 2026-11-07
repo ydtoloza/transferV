@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 import posixpath
 import re
@@ -218,29 +219,34 @@ async def run_transfer(
         last_pct, last_emit = -1, 0.0
         buffer = b""
 
-        while True:
-            chunk = await process.stdout.read(65536)
-            if not chunk:
-                break
-            buffer += chunk
-            *lines, buffer = LINE_SPLIT_RE.split(buffer)
-            for raw in lines:
-                text = raw.decode("utf-8", errors="replace").strip()
-                if not text:
-                    continue
-                tail.append(text)
-                del tail[:-50]
-                pct, speed = parse_progress(text)
-                now = time.monotonic()
-                # Throttle: at most one update per second, and only when % changes.
-                if pct >= 0 and pct != last_pct and now - last_emit >= 1:
-                    last_pct, last_emit = pct, now
-                    on_progress(f"{pct}%" + (f" · {speed}" if speed else ""))
+        try:
+            while True:
+                chunk = await process.stdout.read(65536)
+                if not chunk:
+                    break
+                buffer += chunk
+                *lines, buffer = LINE_SPLIT_RE.split(buffer)
+                for raw in lines:
+                    text = raw.decode("utf-8", errors="replace").strip()
+                    if not text:
+                        continue
+                    tail.append(text)
+                    del tail[:-50]
+                    pct, speed = parse_progress(text)
+                    now = time.monotonic()
+                    # Throttle: at most one update per second, and only when % changes.
+                    if pct >= 0 and pct != last_pct and now - last_emit >= 1:
+                        last_pct, last_emit = pct, now
+                        on_progress(f"{pct}%" + (f" · {speed}" if speed else ""))
+            await process.wait()
+        except asyncio.CancelledError:
+            # Shutdown: stop rsync now; the restart requeues and resumes it.
+            with contextlib.suppress(ProcessLookupError):
+                process.kill()
+            raise
 
         if buffer.strip():
             tail.append(buffer.decode("utf-8", errors="replace").strip())
-
-        await process.wait()
         output = "\n".join(tail[-25:])
         if process.returncode != 0:
             errors = _read_tail(err)
@@ -249,6 +255,17 @@ async def run_transfer(
                 or f"rsync exited with code {process.returncode}"
             )
         return output
+
+
+XFR_RE = re.compile(r"xfr#(\d+)")
+
+
+def summarize_output(output: str) -> str:
+    """rsync's last line, or a plain message when nothing had to be copied."""
+    counts = [int(n) for n in XFR_RE.findall(output or "")]
+    if not counts or max(counts) == 0:
+        return "Ya estaba en el destino; no hubo que copiar nada."
+    return output
 
 
 # ── destination checks (batched) ───────────────────────────
