@@ -1,637 +1,599 @@
+'use strict';
+
 const state = {
+  tab: 'torrents',
   settings: null,
+  settingsDirty: false,
   torrents: [],
+  torrentsSig: '',
   transfers: [],
-  activeTrackers: new Set(),
-  activeStateFilter: '',
-  selectedHashes: new Set(),
-  logsPage: 1,
-  logsPerPage: 30,
-  lastRefreshAt: null,
-  nextCycleSeconds: 15,
+  status: null,
+  filter: 'all',
+  tracker: '',
+  search: '',
+  selected: new Set(),
+  historyFilter: 'all',
+  historyLimit: 50,
+  openLogs: new Set(),
 };
 
 // ── Utils ──────────────────────────────────────────────────
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-const escHtml = (v) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 function bytes(v) {
   if (!v) return '0 B';
-  const units = ['B','KB','MB','GB','TB'];
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let s = v, u = 0;
   while (s >= 1024 && u < units.length - 1) { s /= 1024; u++; }
   return `${s.toFixed(s >= 10 || u === 0 ? 0 : 1)} ${units[u]}`;
 }
 
-function pct(v) { return `${Math.round((v||0)*100)}%`; }
-
-function relTime(iso) {
-  if (!iso) return '';
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return 'ahora';
-  if (m < 60) return `hace ${m}m`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `hace ${h}h`;
-  return `hace ${Math.floor(h/24)}d`;
-}
-
-function etaText(sec) {
-  if (!sec || sec <= 0) return '—';
+function duration(sec) {
+  sec = Math.max(0, Math.round(sec));
   if (sec < 60) return `${sec}s`;
   const m = Math.floor(sec / 60);
   if (m < 60) return `${m}m ${sec % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h ${m % 60}m` : `${Math.floor(h / 24)}d ${h % 24}h`;
 }
 
-function durSince(iso) {
+const since = (iso) => (iso ? (Date.now() - new Date(iso).getTime()) / 1000 : 0);
+
+function relTime(iso) {
   if (!iso) return '';
-  const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${s % 60}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
+  const m = Math.floor(since(iso) / 60);
+  if (m < 1) return 'ahora';
+  if (m < 60) return `hace ${m} min`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
 }
 
-function speedText(msg) {
+const pctOf = (msg) => { const m = msg && msg.match(/(\d+)%/); return m ? Number(m[1]) : 0; };
+
+function speedOf(msg) {
   const m = msg && msg.match(/([\d.]+)\s*([KMGT])?B\/s/);
-  if (!m) return '';
-  const units = { K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 };
-  const bps = parseFloat(m[1]) * (units[m[2]] || 1);
-  if (!bps) return '';
-  return `${bytes(bps)}/s`;
+  if (!m) return 0;
+  return parseFloat(m[1]) * ({ K: 1024, M: 1024 ** 2, G: 1024 ** 3, T: 1024 ** 4 }[m[2]] || 1);
 }
 
-const debounceTimers = {};
-function debounce(key, fn, ms) {
-  clearTimeout(debounceTimers[key]);
-  debounceTimers[key] = setTimeout(fn, ms);
-}
+const timers = {};
+function debounce(key, fn, ms) { clearTimeout(timers[key]); timers[key] = setTimeout(fn, ms); }
 
-// ── Torrent state mapping ──────────────────────────────────
-const STATE_MAP = {
-  uploading:      { label: 'Seeding',       cls: 'state-seeding' },
-  stalledUP:      { label: 'Seeding',       cls: 'state-seeding' },
-  forcedUP:       { label: 'Seeding',       cls: 'state-seeding' },
-  queuedUP:       { label: 'En cola (seed)',cls: 'state-queued' },
-  checkingUP:     { label: 'Verificando',   cls: 'state-checking' },
-  downloading:    { label: 'Descargando',   cls: 'state-downloading' },
-  stalledDL:      { label: 'Descargando',   cls: 'state-downloading' },
-  forcedDL:       { label: 'Descargando',   cls: 'state-downloading' },
-  queuedDL:       { label: 'En cola',       cls: 'state-queued' },
-  checkingDL:     { label: 'Verificando',   cls: 'state-checking' },
-  checkingResumeData: { label: 'Verificando', cls: 'state-checking' },
-  pausedUP:       { label: 'Pausado',       cls: 'state-paused' },
-  pausedDL:       { label: 'Pausado',       cls: 'state-paused' },
-  error:          { label: 'Error',         cls: 'state-error' },
-  missingFiles:   { label: 'Archivos faltantes', cls: 'state-error' },
-  moving:         { label: 'Moviendo',      cls: 'state-checking' },
-  unknown:        { label: 'Desconocido',   cls: 'state-unknown' },
-};
-
-const TRANSFER_STATE_MAP = {
-  pending:      { label: 'Pendiente',     cls: 'badge-warn' },
-  waiting:      { label: 'Esperando',     cls: 'badge-warn' },
-  transferring: { label: 'Transfiriendo', cls: 'badge-accent' },
-  completed:    { label: 'Completado',    cls: 'badge-ok' },
-  failed:       { label: 'Fallido',       cls: 'badge-bad' },
-  cancelled:    { label: 'Cancelado',     cls: 'badge-default' },
-  missing:      { label: 'Borrado en destino', cls: 'badge-missing' },
-};
-
-function stateInfo(raw) {
-  return STATE_MAP[raw] || { label: raw, cls: 'state-unknown' };
-}
-
-function transferStateInfo(raw) {
-  return TRANSFER_STATE_MAP[raw] || { label: raw, cls: 'badge-default' };
-}
-
-// ── Toast ──────────────────────────────────────────────────
 function toast(title, sub = '', type = 'info') {
-  const icons = {
-    ok:    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
-    error: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
-    info:  '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>',
-  };
   const el = document.createElement('div');
-  el.className = `toast toast-${type}`;
-  el.innerHTML = `
-    <div class="toast-icon">${icons[type] || icons.info}</div>
-    <div class="toast-body">
-      <div class="toast-title">${escHtml(title)}</div>
-      ${sub ? `<div class="toast-sub">${escHtml(sub)}</div>` : ''}
-    </div>`;
-  $('#toastContainer').appendChild(el);
-  setTimeout(() => {
-    el.classList.add('leaving');
-    el.addEventListener('animationend', () => el.remove());
-  }, 4000);
+  el.className = `toast ${type}`;
+  el.innerHTML = `<strong>${esc(title)}</strong>${sub ? `<span>${esc(sub)}</span>` : ''}`;
+  $('#toastContainer').append(el);
+  setTimeout(() => { el.classList.add('leaving'); setTimeout(() => el.remove(), 250); }, 4000);
 }
 
-// ── API ────────────────────────────────────────────────────
 async function api(path, options = {}) {
-  const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
-    ...options,
-  });
+  const res = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...options });
   if (!res.ok) {
-    const p = await res.json().catch(() => ({}));
-    throw new Error(p.detail || res.statusText);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(typeof body.detail === 'string' ? body.detail : res.statusText);
   }
   return res.json();
 }
 
-// ── Settings form ──────────────────────────────────────────
-function getPath(src, path) { return path.split('.').reduce((v,k) => v?.[k], src); }
-function setPath(tgt, path, val) {
-  const parts = path.split('.');
-  let cur = tgt;
-  parts.slice(0,-1).forEach(p => { cur[p] = cur[p] || {}; cur = cur[p]; });
-  cur[parts.at(-1)] = val;
+const ICON = {
+  check: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>',
+  cross: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  alert: '<svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 8v5M12 16.5v.5"/><circle cx="12" cy="12" r="9"/></svg>',
+  arrow: '<svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M13 6l6 6-6 6"/></svg>',
+  trash: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13"/><path d="M9 7V4h6v3"/></svg>',
+  eye: '<svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>',
+};
+
+// ── Derived data ───────────────────────────────────────────
+const ACTIVE = ['pending', 'waiting', 'transferring'];
+const running = () => state.transfers.find((t) => t.status === 'transferring');
+const waiting = () => state.transfers.filter((t) => t.status === 'pending' || t.status === 'waiting').sort((a, b) => a.id - b.id);
+const activeByHash = () => new Map(state.transfers.filter((t) => ACTIVE.includes(t.status)).map((t) => [t.torrent_hash, t]));
+
+const GROUPS = {
+  seed: ['uploading', 'stalledUP', 'forcedUP', 'queuedUP', 'checkingUP'],
+  down: ['downloading', 'stalledDL', 'forcedDL', 'queuedDL', 'metaDL', 'forcedMetaDL', 'checkingDL'],
+  paused: ['pausedUP', 'pausedDL', 'stoppedUP', 'stoppedDL'],
+  error: ['error', 'missingFiles'],
+};
+const LABELS = {
+  seed: 'Seeding', down: 'Descargando', paused: 'Pausado', error: 'Error', other: 'Verificando',
+  queuedDL: 'En cola', missingFiles: 'Archivos faltantes', moving: 'Moviendo',
+};
+
+function groupOf(t) {
+  for (const [g, states] of Object.entries(GROUPS)) if (states.includes(t.state)) return g;
+  return 'other';
 }
 
-function fillForm(settings) {
-  $$('[name]').forEach(input => {
-    const val = getPath(settings, input.name);
-    if (input.type === 'checkbox') { input.checked = Boolean(val); return; }
-    input.value = val ?? '';
+// ── Navigation ─────────────────────────────────────────────
+const TABS = ['torrents', 'queue', 'history', 'settings'];
+
+function showTab(tab) {
+  if (!TABS.includes(tab)) tab = 'torrents';
+  state.tab = tab;
+  $$('[data-panel]').forEach((p) => { p.hidden = p.dataset.panel !== tab; });
+  $$('.tabs a').forEach((a) => {
+    if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+  renderLive();
+  renderSelection();
+  if (tab === 'torrents') loadTorrents().catch(() => {});
+}
+
+// ── Header ─────────────────────────────────────────────────
+function renderHeader() {
+  $('#countTorrents').textContent = state.torrents.length;
+  const active = state.transfers.filter((t) => ACTIVE.includes(t.status)).length;
+  const q = $('#countQueue');
+  q.textContent = active;
+  q.hidden = active === 0;
+}
+
+function setChip(id, ok, title) {
+  const el = $(id);
+  el.classList.toggle('ok', !!ok);
+  el.classList.toggle('bad', !ok);
+  el.title = title;
+}
+
+function renderStatus() {
+  const st = state.status;
+  if (!st) return;
+  setChip('#chip-qbit', st.qbit, st.qbit ? 'qBittorrent conectado' : 'qBittorrent sin conexión');
+  setChip('#chip-vps', st.vps?.ok, st.vps?.ok ? 'SSH origen conectado' : `SSH origen: ${st.vps?.error || 'sin conexión'}`);
+  $('#chip-destination').hidden = st.destination === null;
+  if (st.destination) setChip('#chip-destination', st.destination.ok, st.destination.ok ? 'SSH destino conectado' : `SSH destino: ${st.destination.error}`);
+}
+
+// ── Live strip ─────────────────────────────────────────────
+function renderLive() {
+  const t = running();
+  const strip = $('#liveStrip');
+  strip.hidden = !t || state.tab === 'queue' || state.tab === 'settings';
+  strip.classList.toggle('narrow', state.tab === 'history');
+  if (!t) return;
+  const pct = pctOf(t.message);
+  const speed = speedOf(t.message);
+  $('#liveName').textContent = t.torrent_name;
+  $('#liveDest').textContent = `→ ${t.destination_path}`;
+  $('#liveMeta').textContent = [`${pct}%`, speed ? `${bytes(speed)}/s` : '', t.started_at ? duration(since(t.started_at)) : ''].filter(Boolean).join(' · ');
+  $('#liveBar').style.width = `${pct}%`;
+  const n = waiting().length;
+  $('#liveQueueLink').textContent = n ? `Ver cola (${n} en espera)` : 'Ver cola';
+}
+
+// ── Torrents ───────────────────────────────────────────────
+function filteredTorrents() {
+  const q = state.search.toLowerCase();
+  return state.torrents.filter((t) =>
+    (!q || t.name.toLowerCase().includes(q)) &&
+    (!state.tracker || t.tracker === state.tracker) &&
+    (state.filter === 'all' || groupOf(t) === state.filter));
+}
+
+const isTransferable = (t, active) => t.transfer_status !== 'completed' && !active.has(t.hash);
+
+function renderFilters() {
+  const defs = [['all', 'Todos'], ['down', 'Descargando'], ['seed', 'Seeding'], ['paused', 'Pausados'], ['error', 'Error']];
+  const counts = { all: state.torrents.length };
+  state.torrents.forEach((t) => { const g = groupOf(t); counts[g] = (counts[g] || 0) + 1; });
+  $('#stateFilters').innerHTML = defs.map(([id, label]) =>
+    `<button type="button" data-filter="${id}" aria-pressed="${state.filter === id}">${label} <span>${counts[id] || 0}</span></button>`).join('');
+
+  const trackers = [...new Set(state.torrents.map((t) => t.tracker).filter(Boolean))].sort();
+  if (state.tracker && !trackers.includes(state.tracker)) state.tracker = '';
+  $('#trackerFilter').innerHTML = `<option value="">Todos</option>` +
+    trackers.map((tr) => `<option value="${esc(tr)}" ${tr === state.tracker ? 'selected' : ''}>${esc(tr)}</option>`).join('');
+}
+
+function destinationCell(t, active) {
+  const tr = active.get(t.hash);
+  if (tr?.status === 'transferring') return `<span class="dest-run">Transfiriendo ${pctOf(tr.message)}%</span>`;
+  if (tr) return `<span class="dest-queued">En cola</span>`;
+  if (t.transfer_status === 'completed') return `<span class="dest-ok">${ICON.check}Transferido</span>`;
+  return `<button type="button" class="btn btn-sm" data-transfer="${esc(t.hash)}">${ICON.arrow}Transferir</button>`;
+}
+
+function renderTorrents() {
+  const active = activeByHash();
+  const list = filteredTorrents();
+  const down = state.torrents.reduce((a, t) => a + (t.dlspeed || 0), 0);
+  const up = state.torrents.reduce((a, t) => a + (t.upspeed || 0), 0);
+  $('#totalDown').textContent = `↓ ${bytes(down)}/s`;
+  $('#totalUp').textContent = `↑ ${bytes(up)}/s`;
+
+  // Drop selections that are no longer transferable.
+  for (const h of state.selected) {
+    const t = state.torrents.find((x) => x.hash === h);
+    if (!t || !isTransferable(t, active)) state.selected.delete(h);
+  }
+
+  $('#torrentRows').innerHTML = list.map((t) => {
+    const g = groupOf(t);
+    const pct = Math.round((t.progress || 0) * 100);
+    const fill = g === 'error' ? 'var(--bad)' : pct >= 100 ? 'var(--ok)' : 'var(--accent)';
+    const sel = state.selected.has(t.hash);
+    const canPick = isTransferable(t, active);
+    return `<tr class="${sel ? 'selected' : ''}" title="${esc(t.content_path || t.save_path)}">
+      <td>${canPick ? `<input type="checkbox" data-select="${esc(t.hash)}" ${sel ? 'checked' : ''} aria-label="Seleccionar ${esc(t.name)}" />` : ''}</td>
+      <td><div class="name-cell"><strong>${esc(t.name)}</strong><span>${esc(t.tracker || '—')}</span></div></td>
+      <td class="cell-mono">${bytes(t.size)}</td>
+      <td><div class="progress-cell"><div class="mini-bar"><div style="width:${pct}%;background:${fill}"></div></div><span class="cell-mono">${pct}%</span></div></td>
+      <td><span class="badge s-${g}"><span class="dot"></span>${esc(LABELS[t.state] || LABELS[g])}</span></td>
+      <td>${destinationCell(t, active)}</td>
+      <td class="num cell-mono ${t.dlspeed ? 'is-live' : ''}">${t.dlspeed ? `${bytes(t.dlspeed)}/s` : '—'}</td>
+      <td class="num cell-mono ${t.upspeed ? 'is-live' : ''}">${t.upspeed ? `${bytes(t.upspeed)}/s` : '—'}</td>
+      <td class="num cell-mono">${t.eta > 0 && t.eta < 8640000 && pct < 100 ? duration(t.eta) : '—'}</td>
+    </tr>`;
+  }).join('');
+  $('#torrentEmpty').hidden = list.length > 0;
+
+  const pickable = list.filter((t) => isTransferable(t, active));
+  const all = $('#selectAll');
+  all.disabled = pickable.length === 0;
+  all.checked = pickable.length > 0 && pickable.every((t) => state.selected.has(t.hash));
+  renderSelection();
+}
+
+function renderSelection() {
+  const n = state.selected.size;
+  $('#selCount').textContent = n;
+  $('#selectionBar').hidden = n === 0 || state.tab !== 'torrents';
+}
+
+const transferBody = (t) => JSON.stringify({ torrent_hash: t.hash, torrent_name: t.name, source_path: t.content_path, size: t.size });
+
+async function queueTorrents(hashes) {
+  const torrents = hashes.map((h) => state.torrents.find((t) => t.hash === h)).filter(Boolean);
+  if (!torrents.length) return;
+  const results = await Promise.allSettled(torrents.map((t) => api('/api/transfers', { method: 'POST', body: transferBody(t) })));
+  const ok = results.filter((r) => r.status === 'fulfilled').length;
+  const failed = results.find((r) => r.status === 'rejected');
+  hashes.forEach((h) => state.selected.delete(h));
+  if (torrents.length === 1) {
+    ok ? toast('Agregado a la cola', torrents[0].name, 'ok') : toast('No se pudo agregar', failed.reason.message, 'error');
+  } else {
+    toast('Agregados a la cola', `${ok} de ${torrents.length}`, ok ? 'ok' : 'error');
+  }
+  await Promise.all([loadTransfers(), loadTorrents(true)]);
+}
+
+// ── Queue ──────────────────────────────────────────────────
+function renderQueue() {
+  const t = running();
+  const wait = waiting();
+  const count = (s) => state.transfers.filter((x) => x.status === s).length;
+  $('#statRunning').textContent = t ? 1 : 0;
+  $('#statWaiting').textContent = wait.length;
+  $('#statDone').textContent = count('completed');
+  $('#statFailed').textContent = count('failed');
+
+  $('#nowCard').hidden = !t;
+  if (t) {
+    const pct = pctOf(t.message);
+    const speed = speedOf(t.message);
+    const doneBytes = t.size * pct / 100;
+    $('#nowName').textContent = t.torrent_name;
+    $('#nowPath').textContent = `${t.source_path} → ${t.destination_path}`;
+    $('#nowBar').style.width = `${pct}%`;
+    $('#nowPct').textContent = `${pct}%`;
+    $('#nowSpeed').textContent = speed ? `${bytes(speed)}/s` : 'iniciando…';
+    $('#nowBytes').textContent = t.size ? `${bytes(doneBytes)} de ${bytes(t.size)}` : '';
+    $('#nowEta').textContent = speed && t.size ? `queda ~${duration((t.size - doneBytes) / speed)}` : '';
+    $('#nowElapsed').textContent = t.started_at ? `iniciada hace ${duration(since(t.started_at))}` : '';
+  }
+
+  const offset = t ? 2 : 1;
+  $('#waitingList').innerHTML = wait.map((w, i) => {
+    const isWaiting = w.status === 'waiting' && w.message;
+    return `<li>
+      <span class="pos">${i + offset}</span>
+      <div class="info"><strong>${esc(w.torrent_name)}</strong><span class="${isWaiting ? 'is-waiting' : ''}">${esc(w.message || 'Pendiente')}</span></div>
+      <span class="cell-mono">${bytes(w.size)}</span>
+      <button type="button" class="icon-btn" data-delete="${w.id}" aria-label="Quitar ${esc(w.torrent_name)} de la cola">${ICON.trash}</button>
+    </li>`;
+  }).join('');
+  $('#queueEmpty').hidden = !!t || wait.length > 0;
+  $('#waitingTitle').hidden = wait.length === 0;
+}
+
+// ── History ────────────────────────────────────────────────
+const HISTORY = {
+  completed: { label: 'Completado', icon: ICON.check, cls: 'ok' },
+  failed: { label: 'Fallido', icon: ICON.cross, cls: 'bad' },
+  missing: { label: 'Borrado en destino', icon: ICON.alert, cls: 'gone' },
+  cancelled: { label: 'Cancelado', icon: ICON.cross, cls: 'gone' },
+};
+
+function historyNote(t) {
+  const msg = (t.message || '').trim();
+  if (t.status === 'missing') return 'el archivo ya no existe en el destino';
+  if (t.status === 'completed') {
+    if (/encontrado/i.test(msg)) return msg.charAt(0).toLowerCase() + msg.slice(1);
+    if (t.started_at && t.completed_at) return `transferido en ${duration((new Date(t.completed_at) - new Date(t.started_at)) / 1000)}`;
+    return 'transferido';
+  }
+  const line = msg.split('\n').map((l) => l.trim()).filter(Boolean).pop() || '';
+  return line.length > 110 ? `${line.slice(0, 110)}…` : line;
+}
+
+function renderHistory() {
+  const done = state.transfers.filter((t) => HISTORY[t.status]);
+  const defs = [['all', 'Todos'], ['completed', 'Completados'], ['failed', 'Fallidos'], ['missing', 'Borrados en destino']];
+  $('#historyFilters').innerHTML = defs.map(([id, label]) => {
+    const n = id === 'all' ? done.length : done.filter((t) => t.status === id).length;
+    return `<button type="button" data-hfilter="${id}" aria-pressed="${state.historyFilter === id}">${label} <span>${n}</span></button>`;
+  }).join('');
+
+  const list = done.filter((t) => state.historyFilter === 'all' || t.status === state.historyFilter);
+  const shown = list.slice(0, state.historyLimit);
+  $('#historyList').innerHTML = shown.map((t) => {
+    const k = HISTORY[t.status];
+    const open = state.openLogs.has(t.id);
+    return `<li>
+      <div class="h-row">
+        <span class="h-icon ${k.cls}">${k.icon}</span>
+        <div class="h-main"><strong>${esc(t.torrent_name)}</strong><span>${k.label}${historyNote(t) ? ` · ${esc(historyNote(t))}` : ''}</span></div>
+        <span class="cell-mono">${bytes(t.size)}</span>
+        <span class="h-when">${relTime(t.completed_at || t.updated_at)}</span>
+        <button type="button" class="btn btn-sm" data-log="${t.id}" aria-expanded="${open}">${open ? 'Ocultar' : 'Detalles'}</button>
+        <button type="button" class="icon-btn" data-delete="${t.id}" aria-label="Eliminar ${esc(t.torrent_name)} del historial">${ICON.trash}</button>
+      </div>
+      ${open ? `<div class="h-detail"><p class="mono faint small wrap">${esc(t.source_path)} → ${esc(t.destination_path)}</p>${t.message ? `<pre>${esc(t.message)}</pre>` : ''}</div>` : ''}
+    </li>`;
+  }).join('');
+  $('#historyEmpty').hidden = list.length > 0;
+  $('#historyMore').hidden = list.length <= shown.length;
+
+  const mins = state.settings?.verify_interval_minutes;
+  $('#verifyInfo').textContent = mins
+    ? `El destino se revisa cada ${mins} min con una sola conexión SSH.`
+    : 'La verificación automática del destino está desactivada.';
+}
+
+function renderTransfers() {
+  renderHeader();
+  renderLive();
+  renderQueue();
+  renderHistory();
+  if (state.torrents.length) renderTorrents();
+}
+
+// ── Settings ───────────────────────────────────────────────
+const MODE_INFO = {
+  local_pull: {
+    hint: 'Solo hace falta SSH al origen. La llave vive en este servidor.',
+    dest: 'Carpeta de destino en este servidor',
+    keyWhere: { vps: 'en este servidor', destination: '' },
+    flow: [['n', 'Origen', 'VPS · qBittorrent'], ['e', 'rsync'], ['n', 'Este servidor', 'TransferV + destino']],
+  },
+  orchestrated_pull: {
+    hint: 'TransferV entra por SSH al destino y le ordena descargar. La llave del origen debe estar en el destino.',
+    dest: 'Carpeta en el servidor destino',
+    keyWhere: { vps: 'en el servidor destino', destination: 'en este servidor' },
+    flow: [['n', 'Origen', 'VPS · qBittorrent'], ['e', 'rsync'], ['n', 'Destino', 'servidor media'], ['c', 'ssh'], ['n', 'Este servidor', 'TransferV']],
+  },
+  remote_push: {
+    hint: 'TransferV entra por SSH al origen y le ordena enviar. La llave del destino debe estar en el origen.',
+    dest: 'Carpeta en el servidor destino',
+    keyWhere: { vps: 'en este servidor', destination: 'en el servidor origen' },
+    flow: [['n', 'Este servidor', 'TransferV'], ['c', 'ssh'], ['n', 'Origen', 'VPS · qBittorrent'], ['e', 'rsync'], ['n', 'Destino', 'servidor media']],
+  },
+};
+
+function sshCardHtml(key, title, role) {
+  const p = `${key}_ssh`;
+  return `
+    <div class="card-head"><h2>${esc(title)}</h2><span class="faint small">${esc(role)}</span></div>
+    <div class="grid grid-ssh">
+      <div class="field"><label for="s-${key}-user">Usuario</label><input name="${p}.username" id="s-${key}-user" placeholder="root" /></div>
+      <div class="field"><label for="s-${key}-host">Host / IP</label><input name="${p}.host" id="s-${key}-host" placeholder="203.0.113.10" /></div>
+      <div class="field"><label for="s-${key}-port">Puerto</label><input class="mono" name="${p}.port" id="s-${key}-port" type="number" min="1" max="65535" placeholder="22" /></div>
+    </div>
+    <div class="grid grid-auth">
+      <div class="field">
+        <span class="label" id="s-${key}-auth">Autenticación</span>
+        <div class="seg-auth" role="radiogroup" aria-labelledby="s-${key}-auth">
+          <label><input type="radio" name="${p}.auth_method" value="key" /><span>Llave SSH</span></label>
+          <label><input type="radio" name="${p}.auth_method" value="password" /><span>Contraseña</span></label>
+        </div>
+      </div>
+      <div class="field" data-auth="${key}:key">
+        <label for="s-${key}-key">Ruta de la llave <span class="faint" data-keywhere="${key}"></span></label>
+        <input class="mono" name="${p}.key_path" id="s-${key}-key" placeholder="/keys/id_ed25519" />
+      </div>
+      <div class="field" data-auth="${key}:password">
+        <label for="s-${key}-pw">Contraseña SSH</label>
+        <input name="${p}.password" id="s-${key}-pw" type="password" autocomplete="new-password" data-pw />
+      </div>
+    </div>`;
+}
+
+function buildSettingsForm() {
+  $$('[data-ssh]').forEach((s) => { s.innerHTML = sshCardHtml(s.dataset.ssh, s.dataset.title, s.dataset.role); });
+  $$('input[data-pw]').forEach((input) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'password-field';
+    input.replaceWith(wrap);
+    wrap.append(input);
+    wrap.insertAdjacentHTML('beforeend', `<button type="button" class="pw-toggle" aria-label="Mostrar u ocultar contraseña">${ICON.eye}</button>`);
   });
 }
 
+const getPath = (src, path) => path.split('.').reduce((v, k) => v?.[k], src);
+function setPath(obj, path, val) {
+  const parts = path.split('.');
+  let cur = obj;
+  parts.slice(0, -1).forEach((k) => { cur[k] = cur[k] || {}; cur = cur[k]; });
+  cur[parts.at(-1)] = val;
+}
+const formInputs = () => $$('#settingsForm [name]');
+
+function fillForm(settings) {
+  formInputs().forEach((input) => {
+    const val = getPath(settings, input.name);
+    if (input.type === 'checkbox') input.checked = !!val;
+    else if (input.type === 'radio') input.checked = input.value === String(val);
+    else input.value = val ?? '';
+  });
+  syncForm();
+  setDirty(false);
+}
+
 function readForm() {
-  const s = structuredClone(state.settings);
-  // Itera TODOS los [name], incluidos los campos ocultos/deshabilitados de
-  // autenticación, para no perder contraseñas ni rutas al guardar.
-  $$('[name]').forEach(input => {
-    let val = input.type === 'checkbox' ? input.checked : input.value;
-    if (input.type === 'number') val = Number(val);
+  const s = structuredClone(state.settings || {});
+  formInputs().forEach((input) => {
+    if (input.type === 'radio' && !input.checked) return;
+    let val = input.type === 'checkbox' ? input.checked : input.value.trim();
+    if (input.type === 'number') {
+      // Empty/invalid keeps the previous value instead of saving 0.
+      val = val === '' || Number.isNaN(Number(val)) ? getPath(state.settings, input.name) : Number(val);
+    }
     setPath(s, input.name, val);
   });
   return s;
 }
 
-// ── Auth visibility (SSH key vs password) ──────────────────
-// Oculta y deshabilita el campo no activo, pero conserva su valor en el DOM
-// para que readForm() lo siga serializando.
-function syncAuthVisibility(scope) {
-  const group = document.querySelector(`[data-auth-scope="${scope}"]`);
-  if (!group) return;
-  const select = group.querySelector('[data-auth-select]');
-  if (!select) return;
-  const method = select.value === 'password' ? 'password' : 'key';
-  group.querySelectorAll('[data-auth-field]').forEach(field => {
-    const active = field.dataset.authField === method;
-    field.hidden = !active;
-    field.querySelectorAll('input, select, textarea').forEach(control => {
-      control.disabled = !active;
-    });
+const currentMode = () => $('#settingsForm [name="transfer_mode"]:checked')?.value || 'local_pull';
+
+// Hidden fields keep their values; readForm still serializes them.
+function syncForm() {
+  const mode = currentMode();
+  const info = MODE_INFO[mode];
+  $$('#settingsForm [data-modes]').forEach((el) => { el.hidden = !el.dataset.modes.split(' ').includes(mode); });
+  $('#modeHint').textContent = info.hint;
+  $('#destLabel').textContent = info.dest;
+  $('#modeFlow').innerHTML = info.flow.map(([kind, a, b]) => kind === 'n'
+    ? `<div class="flow-node"><strong>${a}</strong><span>${b}</span></div>`
+    : `<div class="flow-edge ${kind === 'c' ? 'ctl' : ''}">${a}</div>`).join('');
+  $$('[data-keywhere]').forEach((el) => {
+    const where = info.keyWhere[el.dataset.keywhere];
+    el.textContent = where ? `(${where})` : '';
   });
+  $$('[data-auth]').forEach((el) => {
+    const [key, method] = el.dataset.auth.split(':');
+    const chosen = $(`#settingsForm [name="${key}_ssh.auth_method"]:checked`)?.value || 'key';
+    el.hidden = chosen !== method;
+  });
+  const on = $('#s-wh-enabled').checked;
+  $$('[data-webhook]').forEach((el) => { el.hidden = !on; });
+  $('#webhookPill').textContent = on ? 'Activadas' : 'Desactivadas';
+  $('#webhookPill').classList.toggle('on', on);
+  const rs = ($('#s-rsync').value || '').split(' ').slice(0, 2).join(' ');
+  $('#advSummary').textContent = `cola cada ${$('#s-interval').value || '—'} s · destino cada ${$('#s-verify').value || '—'} min · rsync ${rs}`;
 }
 
-function syncAllAuthVisibility() {
-  $$('[data-auth-scope]').forEach(group => syncAuthVisibility(group.dataset.authScope));
+function setDirty(dirty) {
+  state.settingsDirty = dirty;
+  $('#saveBtn').disabled = !dirty;
+  const el = $('#settingsState');
+  el.classList.toggle('dirty', dirty);
+  el.lastElementChild.textContent = dirty ? 'Cambios sin guardar' : 'Todo guardado';
 }
 
-function togglePassword(btn) {
-  const input = document.getElementById(btn.dataset.pwToggle);
-  if (!input) return;
-  const willShow = input.type === 'password';
-  input.type = willShow ? 'text' : 'password';
-  btn.classList.toggle('is-visible', willShow);
-  btn.setAttribute('aria-pressed', willShow ? 'true' : 'false');
-  const label = willShow ? 'Ocultar contraseña' : 'Mostrar contraseña';
-  btn.setAttribute('aria-label', label);
-  btn.setAttribute('title', label);
-}
-
-// ── Render torrents ────────────────────────────────────────
-function getFilteredTorrents() {
-  const search = $('#torrentSearch')?.value.toLowerCase() || '';
-  const stateF = state.activeStateFilter || '';
-
-  return state.torrents.filter(t => {
-    if (search && !t.name.toLowerCase().includes(search)) return false;
-    if (state.activeTrackers.size > 0 && !state.activeTrackers.has(t.tracker)) return false;
-    if (stateF) {
-      if (torrentGroup(t) !== stateF) return false;
-    }
+async function saveSettings() {
+  const payload = readForm();
+  try { JSON.parse(payload.webhook?.headers_json || '{}'); } catch {
+    toast('Headers del webhook inválidos', 'Deben ser JSON válido', 'error');
+    return false;
+  }
+  try {
+    state.settings = await api('/api/settings', { method: 'PUT', body: JSON.stringify(payload) });
+    fillForm(state.settings);
+    renderHistory();
+    toast('Ajustes guardados', '', 'ok');
+    loadStatus(true);
     return true;
-  });
-}
-
-function torrentGroup(torrent) {
-  const { cls } = stateInfo(torrent.state);
-  if (cls.includes('seeding')) return 'seeding';
-  if (cls.includes('downloading')) return 'downloading';
-  if (cls.includes('paused')) return 'paused';
-  if (cls.includes('queued') || cls.includes('checking')) return 'queued';
-  if (cls.includes('error')) return 'error';
-  return 'unknown';
-}
-
-function updateStateFilterCounts() {
-  const counts = { all: state.torrents.length, seeding: 0, downloading: 0, paused: 0, queued: 0, error: 0 };
-  state.torrents.forEach(t => {
-    const group = torrentGroup(t);
-    if (counts[group] !== undefined) counts[group] += 1;
-  });
-  Object.entries(counts).forEach(([key, value]) => {
-    const el = $(`#count-${key}`);
-    if (el) el.textContent = value;
-  });
-  $$('.filter-row').forEach(row => {
-    row.classList.toggle('active', row.dataset.stateFilter === state.activeStateFilter);
-  });
-}
-
-function updateTrackerFilter() {
-  const trackers = [...new Set(state.torrents.map(t => t.tracker).filter(Boolean))].sort();
-  const container = $('#trackerFilters');
-  if (!container) return;
-  
-  // Limpiar trackers activos que ya no existen
-  const currentActive = new Set([...state.activeTrackers].filter(t => trackers.includes(t)));
-  state.activeTrackers = currentActive;
-
-  const trackerCounts = state.torrents.reduce((acc, torrent) => {
-    if (torrent.tracker) acc[torrent.tracker] = (acc[torrent.tracker] || 0) + 1;
-    return acc;
-  }, {});
-
-  let html = `<button class="tracker-pill ${state.activeTrackers.size === 0 ? 'active' : ''}" data-tracker=""><span class="check-box"></span><span>Todos</span><b>${state.torrents.length}</b></button>`;
-  html += trackers.map(t => 
-    `<button class="tracker-pill ${state.activeTrackers.has(t) ? 'active' : ''}" data-tracker="${escHtml(t)}"><span class="check-box"></span><img src="https://icons.duckduckgo.com/ip3/${escHtml(t)}.ico" class="tracker-icon-img" onerror="this.style.display='none'"><span>${escHtml(t)}</span><b>${trackerCounts[t] || 0}</b></button>`
-  ).join('');
-  
-  container.innerHTML = html;
-}
-
-function renderTorrents() {
-  const list = getFilteredTorrents();
-  updateStateFilterCounts();
-  $('#torrentCount').textContent = `${list.length} de ${state.torrents.length} torrents`;
-
-  // Badge
-  const active = state.torrents.filter(t => !STATE_MAP[t.state] || !['state-seeding','state-paused'].includes(STATE_MAP[t.state]?.cls)).length;
-  const badge = $('#navBadgeTorrents');
-  badge.textContent = state.torrents.length;
-  badge.classList.toggle('visible', state.torrents.length > 0);
-
-  const el = $('#torrentList');
-  if (!list.length) {
-    el.innerHTML = `<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg><span>No hay torrents que mostrar</span></div>`;
-    return;
-  }
-
-  el.innerHTML = `
-    <table class="torrent-table">
-      <thead>
-        <tr>
-          <th class="col-check"><div class="row-check" id="selectAllCheck"></div></th>
-          <th class="col-icon"></th>
-          <th class="col-name">Nombre</th>
-          <th class="col-size">Tamaño</th>
-          <th class="col-progress">Progreso</th>
-          <th class="col-status">Estado</th>
-          <th class="col-action"></th>
-          <th class="col-seeds">Seeds</th>
-          <th class="col-peers">Peers</th>
-          <th class="col-speed">Bajada</th>
-          <th class="col-speed">Subida</th>
-          <th class="col-eta">ETA</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${list.map((t, index) => {
-          const { label, cls } = stateInfo(t.state);
-          const isComplete = t.progress >= 1;
-          const isActive = !isComplete && t.dlspeed > 0;
-          const queued = t.queued;
-          const isSelected = state.selectedHashes.has(t.hash);
-          return `
-            <tr data-hash="${escHtml(t.hash)}" class="${isSelected ? 'selected' : ''}" title="${escHtml(t.content_path || t.save_path)}">
-              <td>${t.transfer_status !== 'completed' && !queued ? `<div class="row-check ${isSelected ? 'active' : ''}"></div>` : ''}</td>
-              <td>
-                ${t.tracker 
-                  ? `<img src="https://icons.duckduckgo.com/ip3/${escHtml(t.tracker)}.ico" class="tracker-icon-img" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-grid'"><span class="torrent-icon" style="display:none">↓</span>`
-                  : `<span class="torrent-icon">↓</span>`
-                }
-              </td>
-              <td><span class="name-cell">${escHtml(t.name)}</span></td>
-              <td class="cell-dim">${bytes(t.size)}</td>
-              <td>
-                <div class="progress-cell">
-                  <div class="progress-bar"><div class="progress-fill ${isActive ? 'active' : ''} ${isComplete ? 'complete' : ''}" style="width:${pct(t.progress)}"></div></div>
-                  <span class="progress-label ${isActive ? 'pulse-text' : ''}">${Math.round((t.progress || 0) * 100)}%</span>
-                </div>
-              </td>
-              <td><span class="badge ${cls}">${label}</span></td>
-              <td>
-                ${t.transfer_status === 'completed'
-                  ? `<span class="badge badge-ok" title="Transferido">OK</span>`
-                  : `<button class="table-action" data-transfer="${escHtml(t.hash)}" ${queued?'disabled':''} title="${queued ? 'Ya está en cola' : 'Transferir'}">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>
-                    </button>`
-                }
-              </td>
-              <td class="cell-num">${t.num_seeds} <span class="cell-sub">(${t.num_complete})</span></td>
-              <td class="cell-num">${t.num_leechs} <span class="cell-sub">(${t.num_incomplete})</span></td>
-              <td class="cell-num ${t.dlspeed ? 'cell-live' : 'cell-dim'}">${t.dlspeed ? bytes(t.dlspeed) + '/s' : '—'}</td>
-              <td class="cell-num ${t.upspeed ? 'cell-live' : 'cell-dim'}">${t.upspeed ? bytes(t.upspeed) + '/s' : '—'}</td>
-              <td class="cell-num cell-dim">${etaText(t.eta)}</td>
-            </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
-
-  const selectAll = $('#selectAllCheck');
-  if (selectAll) {
-    const allFilteredSelected = list.length > 0 && list.every(t => state.selectedHashes.has(t.hash));
-    selectAll.classList.toggle('active', allFilteredSelected);
-  }
-  updateActionBar();
-}
-
-function updateActionBar() {
-  const bar = $('#bulkActionBar');
-  const countLabel = $('#bulkCount');
-  if (!bar || !countLabel) return;
-  
-  if (state.selectedHashes.size > 0) {
-    bar.classList.add('visible');
-    countLabel.textContent = state.selectedHashes.size;
-  } else {
-    bar.classList.remove('visible');
+  } catch (err) {
+    toast('Error al guardar', err.message, 'error');
+    return false;
   }
 }
 
-async function bulkTransfer() {
-  if (state.selectedHashes.size === 0) return;
-  const hashes = Array.from(state.selectedHashes);
-  let successCount = 0;
-  
-  toast('Iniciando transferencia múltiple...', `${hashes.length} elementos`, 'info');
-  for (const hash of hashes) {
-    const torrent = state.torrents.find(t => t.hash === hash);
-    if (!torrent || torrent.queued || torrent.transfer_status === 'completed') continue;
-    try {
-      await api('/api/transfers', {
-        method: 'POST',
-        body: JSON.stringify({
-          torrent_hash: torrent.hash,
-          torrent_name: torrent.name,
-          source_path: torrent.content_path,
-          size: torrent.size,
-        }),
-      });
-      successCount++;
-    } catch (err) {
-      console.error(err);
-    }
-  }
-  
-  state.selectedHashes.clear();
-  toast('Proceso completado', `Agregados: ${successCount}`, 'ok');
-  await Promise.all([loadTorrents(), loadTransfers()]);
-}
-
-// ── Render queue ───────────────────────────────────────────
-function renderQueue() {
-  const active = state.transfers.filter(t =>
-    ['pending','waiting','transferring'].includes(t.status)
-  );
-
-  renderSidebarStats();
-
-  const badge = $('#navBadgeQueue');
-  badge.textContent = active.length;
-  badge.classList.toggle('visible', active.length > 0);
-
-  const el = $('#transferList');
-  if (!active.length) {
-    el.innerHTML = `<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg><span>La cola está vacía</span></div>`;
-    return;
-  }
-
-  el.innerHTML = active.map(t => {
-    const { label, cls } = transferStateInfo(t.status);
-    let isTransferring = t.status === 'transferring';
-    let pctNum = 0;
-    if (isTransferring && t.message && t.message.includes('%')) {
-      const match = t.message.match(/(\d+)%/);
-      if (match) pctNum = parseInt(match[1]);
-    }
-    const speed = isTransferring ? speedText(t.message) : '';
-
-    return `
-    <article class="item ${isTransferring ? 'item-live' : ''}">
-      <div class="item-header">
-        <div class="item-title">${escHtml(t.torrent_name)}</div>
-        <div class="item-actions">
-          <span class="badge ${cls}">${label}</span>
-          <span class="badge badge-default">${bytes(t.size)}</span>
-        </div>
-      </div>
-      <div class="item-path">${escHtml(t.source_path)} → ${escHtml(t.destination_path)}</div>
-      ${isTransferring ? `
-        <div class="transfer-progress">
-          <div class="progress-bar">
-            <div class="progress-fill transferring ${pctNum > 0 && pctNum < 100 ? 'active' : ''}" style="width:${Math.max(pctNum, 4)}%"></div>
-          </div>
-          <div class="transfer-meta">
-            <span class="progress-label live">${pctNum}%</span>
-            ${speed ? `<span class="transfer-speed">${speed}</span>` : ''}
-            ${t.started_at ? `<span class="transfer-elapsed" data-started="${escHtml(t.started_at)}">${durSince(t.started_at)}</span>` : ''}
-          </div>
-        </div>
-      ` : ''}
-      ${t.message && !isTransferring ? `<div class="item-path" style="margin-top:4px;color:var(--ink-2)">${escHtml(t.message)}</div>` : ''}
-    </article>`;
-  }).join('');
-}
-
-// ── Render logs ────────────────────────────────────────────
-function renderSidebarStats() {
-  const counts = {
-    pending: state.transfers.filter(t => ['pending','waiting'].includes(t.status)).length,
-    transferring: state.transfers.filter(t => t.status === 'transferring').length,
-    completed: state.transfers.filter(t => t.status === 'completed').length,
-    failed: state.transfers.filter(t => t.status === 'failed').length,
-  };
-
-  Object.entries(counts).forEach(([key, value]) => {
-    const el = $(`#metric-${key}`);
-    if (el) el.textContent = value;
-  });
-
-  const last = $('#activity-last-refresh');
-  if (last) last.textContent = state.lastRefreshAt ? relTime(state.lastRefreshAt.toISOString()) : 'Ahora';
-
-  const next = $('#activity-next-cycle');
-  if (next) next.textContent = `${state.nextCycleSeconds} s`;
-}
-
-function renderLogs() {
-  const filterVal = $('#logsFilter')?.value || '';
-  const done = state.transfers.filter(t =>
-    ['completed','failed','cancelled'].includes(t.status) &&
-    (!filterVal || t.status === filterVal)
-  );
-
-  const el = $('#logsList');
-  if (!done.length) {
-    el.innerHTML = `<div class="empty"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>No hay registros</span></div>`;
-    return;
-  }
-
-  const totalPages = Math.ceil(done.length / state.logsPerPage);
-  if (state.logsPage > totalPages) state.logsPage = totalPages;
-  if (state.logsPage < 1) state.logsPage = 1;
-
-  const startIdx = (state.logsPage - 1) * state.logsPerPage;
-  const paginated = done.slice(startIdx, startIdx + state.logsPerPage);
-
-  let html = paginated.map(t => {
-    const { label, cls } = transferStateInfo(t.status);
-    const msgClean = (t.message || '').replace(/\d+\s+\d+%.*?\n?/g, '').trim();
-    return `
-    <article class="log-item">
-      <div class="log-header">
-        <div>
-          <div class="item-title">${escHtml(t.torrent_name)}</div>
-          <div class="item-meta">
-            <span class="badge ${cls}">${label}</span>
-            <span class="badge badge-default">${bytes(t.size)}</span>
-            <span style="font-size:11px;color:var(--ink-3)">${relTime(t.completed_at || t.updated_at)}</span>
-          </div>
-          <div class="item-path">${escHtml(t.source_path)} → ${escHtml(t.destination_path)}</div>
-        </div>
-        <div class="item-actions">
-          ${msgClean ? `<button class="log-toggle" data-id="${t.id}">Ver log</button>` : ''}
-          <button class="btn btn-danger" data-delete="${t.id}" title="Eliminar del historial">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>
-          </button>
-        </div>
-      </div>
-      ${msgClean ? `<div class="log-message" id="log-msg-${t.id}">${escHtml(msgClean)}</div>` : ''}
-    </article>`;
-  }).join('');
-
-  if (totalPages > 1) {
-    html += `
-      <div class="pagination">
-        <button class="btn btn-secondary" data-page="${state.logsPage - 1}" ${state.logsPage === 1 ? 'disabled' : ''}>Anterior</button>
-        <span class="page-info">Página ${state.logsPage} de ${totalPages}</span>
-        <button class="btn btn-secondary" data-page="${state.logsPage + 1}" ${state.logsPage === totalPages ? 'disabled' : ''}>Siguiente</button>
-      </div>
-    `;
-  }
-
-  el.innerHTML = html;
-}
-
-// ── Navigation ─────────────────────────────────────────────
-function switchPanel(panelId) {
-  $$('.nav-item[data-panel]').forEach(b => b.classList.remove('active'));
-  $$('.panel').forEach(p => p.classList.remove('active'));
-  $(`#nav-${panelId}`)?.classList.add('active');
-  $(`#panel-${panelId}`)?.classList.add('active');
+async function testConnection() {
+  const btn = $('#testBtn');
+  if (btn.disabled) return;
+  if (state.settingsDirty && !(await saveSettings())) return;
+  btn.disabled = true;
+  btn.textContent = 'Probando…';
+  const st = await loadStatus(true);
+  btn.disabled = false;
+  btn.textContent = 'Probar conexión';
+  const box = $('#connResults');
+  box.hidden = false;
+  if (!st) { box.innerHTML = `<div class="conn-row bad"><strong>${ICON.cross}Error</strong><span>No se pudo consultar el estado</span></div>`; return; }
+  const rows = [
+    ['qBittorrent', { ok: st.qbit, error: 'No se pudo iniciar sesión. Revisa URL, usuario y contraseña.' }],
+    ['SSH origen', st.vps],
+    ['SSH destino', st.destination],
+  ].filter(([, r]) => r);
+  box.innerHTML = rows.map(([name, r]) =>
+    `<div class="conn-row ${r.ok ? 'ok' : 'bad'}"><strong>${r.ok ? ICON.check : ICON.cross}${name}</strong><span>${esc(r.ok ? 'Conectado' : r.error)}</span></div>`).join('');
 }
 
 // ── Data loading ───────────────────────────────────────────
 async function loadSettings() {
   state.settings = await api('/api/settings');
   fillForm(state.settings);
-  syncAllAuthVisibility();
 }
 
-async function loadStatus() {
+async function loadStatus(force = false) {
   try {
-    const st = await api('/api/status');
-    $('#dot-qbit').className = 'status-dot ' + (st.qbit ? 'ok' : 'bad');
-    $('#dot-vps').className = 'status-dot ' + (st.vps ? 'ok' : 'bad');
-    $('#dot-destination').className = 'status-dot ' + (st.destination ? 'ok' : 'bad');
-  } catch (err) {
-    $$('.status-dot').forEach(el => el.className = 'status-dot bad');
+    state.status = await api(`/api/status${force ? '?force=true' : ''}`);
+    renderStatus();
+    return state.status;
+  } catch {
+    return null;
   }
 }
 
-async function restartSsh(target) {
+async function loadTorrents(force = false) {
+  let torrents;
   try {
-    toast(`Reiniciando SSH en ${target}...`, '', 'info');
-    await api(`/api/system/restart-ssh/${target}`, { method: 'POST' });
-    toast(`SSH reiniciado (${target})`, '', 'ok');
-    setTimeout(loadStatus, 2000);
+    torrents = await api('/api/torrents');
   } catch (err) {
-    toast(`Error al reiniciar SSH`, err.message, 'error');
+    state.torrents = [];
+    state.torrentsSig = '';
+    $('#torrentRows').innerHTML = '';
+    $('#torrentEmpty').hidden = false;
+    $('#torrentEmpty').textContent = `No se pudo leer qBittorrent: ${err.message}`;
+    renderHeader();
+    return;
   }
-}
-
-async function loadTorrents() {
-  state.torrents = await api('/api/torrents');
-  state.lastRefreshAt = new Date();
-  updateTrackerFilter();
+  const sig = JSON.stringify(torrents);
+  if (!force && sig === state.torrentsSig) return;  // unchanged: skip the DOM rebuild
+  state.torrentsSig = sig;
+  state.torrents = torrents;
+  $('#torrentEmpty').textContent = 'No hay torrents con este filtro.';
+  renderFilters();
   renderTorrents();
-  renderSidebarStats();
+  renderHeader();
 }
 
 async function loadTransfers() {
   state.transfers = await api('/api/transfers');
-  state.lastRefreshAt = new Date();
-  renderQueue();
-  renderLogs();
+  renderTransfers();
 }
 
 async function refreshAll() {
-  try {
-    await Promise.all([loadSettings(), loadTorrents(), loadTransfers(), loadStatus()]);
-  } catch (err) {
-    toast('Error al actualizar', err.message, 'error');
-  }
-}
-
-async function saveSettings() {
-  try {
-    state.settings = await api('/api/settings', { method: 'PUT', body: JSON.stringify(readForm()) });
-    fillForm(state.settings);
-    syncAllAuthVisibility();
-    toast('Ajustes guardados', '', 'ok');
-  } catch (err) {
-    toast('Error al guardar', err.message, 'error');
-  }
-}
-
-async function queueTransfer(hash) {
-  const torrent = state.torrents.find(t => t.hash === hash);
-  if (!torrent) return;
-  try {
-    await api('/api/transfers', {
-      method: 'POST',
-      body: JSON.stringify({
-        torrent_hash: torrent.hash,
-        torrent_name: torrent.name,
-        source_path: torrent.content_path,
-        size: torrent.size,
-      }),
-    });
-    toast('Transferencia agregada', torrent.name, 'ok');
-    await Promise.all([loadTorrents(), loadTransfers()]);
-  } catch (err) {
-    toast('Error al agregar', err.message, 'error');
-  }
+  const jobs = [loadTorrents(), loadTransfers(), loadStatus()];
+  if (!state.settingsDirty) jobs.push(loadSettings());  // never wipe unsaved edits
+  await Promise.allSettled(jobs);
 }
 
 async function deleteTransfer(id) {
   try {
     await api(`/api/transfers/${id}`, { method: 'DELETE' });
-    state.transfers = state.transfers.filter(t => t.id !== Number(id));
-    renderLogs();
-    renderQueue();
-    toast('Eliminado del historial', '', 'ok');
+    state.transfers = state.transfers.filter((t) => t.id !== Number(id));
+    renderTransfers();
+    toast('Eliminado', '', 'ok');
   } catch (err) {
-    toast('Error al eliminar', err.message, 'error');
+    toast('No se pudo eliminar', err.message, 'error');
   }
 }
 
@@ -639,192 +601,101 @@ async function deleteTransfer(id) {
 function connectEvents() {
   if (!window.EventSource) return;
   const sse = new EventSource('/api/events');
-  sse.addEventListener('transfers', () => {
-    debounce('transfers', loadTransfers, 250);
-    debounce('torrents', loadTorrents, 8000);
+  sse.addEventListener('transfers', () => debounce('transfers', () => loadTransfers().catch(() => {}), 300));
+  sse.addEventListener('torrents', () => debounce('torrents', () => loadTorrents().catch(() => {}), 1000));
+  // Progress arrives as a small payload and is patched in place.
+  sse.addEventListener('progress', (e) => {
+    const { id, message } = JSON.parse(e.data);
+    const t = state.transfers.find((x) => x.id === id);
+    if (!t) return debounce('transfers', () => loadTransfers().catch(() => {}), 300);
+    t.status = 'transferring';
+    t.message = message;
+    renderLive();
+    renderQueue();
+    if (state.tab === 'torrents') renderTorrents();
   });
-  sse.addEventListener('torrents', () => {
-    debounce('torrents', loadTorrents, 1200);
-  });
-  // EventSource reconnects automatically on error.
+  sse.addEventListener('open', () => debounce('transfers', () => loadTransfers().catch(() => {}), 300));
 }
 
-// ── Theme ──────────────────────────────────────────────────
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  localStorage.setItem('transferv-theme', theme);
-}
-
-function toggleTheme() {
-  const cur = document.documentElement.dataset.theme;
-  applyTheme(cur === 'dark' ? 'light' : 'dark');
-}
-
-// ── Event bindings ─────────────────────────────────────────
+// ── Events ─────────────────────────────────────────────────
 function bindEvents() {
-  // Sidebar nav
-  $$('.nav-item[data-panel]').forEach(btn => {
-    btn.addEventListener('click', () => switchPanel(btn.dataset.panel));
-  });
+  window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 
-  $('#refreshBtn')?.addEventListener('click', () => {
-    refreshAll();
-    const icon = $('#refreshBtn svg');
-    if (icon) {
-      $('#refreshBtn').classList.add('spin');
-      setTimeout(() => $('#refreshBtn').classList.remove('spin'), 700);
-    }
+  $('#torrentSearch').addEventListener('input', (e) => { state.search = e.target.value; renderTorrents(); });
+  $('#trackerFilter').addEventListener('change', (e) => { state.tracker = e.target.value; renderTorrents(); });
+  $('#selectAll').addEventListener('change', (e) => {
+    const active = activeByHash();
+    filteredTorrents().filter((t) => isTransferable(t, active)).forEach((t) => {
+      e.target.checked ? state.selected.add(t.hash) : state.selected.delete(t.hash);
+    });
+    renderTorrents();
   });
-  $('#saveBtn')?.addEventListener('click', saveSettings);
-  $('#themeToggleBtn')?.addEventListener('click', toggleTheme);
+  $('#btnBulkTransfer').addEventListener('click', () => queueTorrents([...state.selected]));
+  $('#btnBulkClear').addEventListener('click', () => { state.selected.clear(); renderTorrents(); });
 
-  $('#runOnceBtn')?.addEventListener('click', async () => {
-    if ($('#runOnceBtn').classList.contains('busy')) return;
-    $('#runOnceBtn').classList.add('busy', 'spin');
-    try {
-      await api('/api/worker/run-once', { method: 'POST' });
-      await loadTransfers();
-      toast('Ciclo procesado', '', 'info');
-    } catch (err) {
-      toast('Error', err.message, 'error');
-    } finally {
-      $('#runOnceBtn').classList.remove('busy', 'spin');
-    }
+  $('#runOnceBtn').addEventListener('click', async () => {
+    try { await api('/api/worker/run-once', { method: 'POST' }); toast('Procesando la cola', '', 'ok'); }
+    catch (err) { toast('Error', err.message, 'error'); }
   });
+  $('#verifyBtn').addEventListener('click', async () => {
+    try { await api('/api/worker/verify', { method: 'POST' }); toast('Verificando el destino', 'Los cambios aparecerán en unos segundos', 'ok'); }
+    catch (err) { toast('Error', err.message, 'error'); }
+  });
+  $('#historyMore').addEventListener('click', () => { state.historyLimit += 50; renderHistory(); });
 
-  $('#btnBulkClear')?.addEventListener('click', () => {
-    state.selectedHashes.clear();
+  const form = $('#settingsForm');
+  form.addEventListener('input', () => { setDirty(true); syncForm(); });
+  form.addEventListener('change', () => { setDirty(true); syncForm(); });
+  form.addEventListener('submit', (e) => { e.preventDefault(); saveSettings(); });
+  $('#saveBtn').addEventListener('click', saveSettings);
+  $('#testBtn').addEventListener('click', testConnection);
+  window.addEventListener('beforeunload', (e) => { if (state.settingsDirty) e.preventDefault(); });
+
+  document.body.addEventListener('change', (e) => {
+    const box = e.target.closest('[data-select]');
+    if (!box) return;
+    box.checked ? state.selected.add(box.dataset.select) : state.selected.delete(box.dataset.select);
     renderTorrents();
   });
 
-  $('#btnBulkTransfer')?.addEventListener('click', async () => {
-    await bulkTransfer();
-  });
-
-  // Filters
-  $('#torrentSearch')?.addEventListener('input', renderTorrents);
-  $('#logsFilter')?.addEventListener('change', () => {
-    state.logsPage = 1;
-    renderLogs();
-  });
-
-  // Delegation: sincronizar visibilidad al cambiar el método de autenticación
-  document.body.addEventListener('change', (e) => {
-    const authSelect = e.target.closest('[data-auth-select]');
-    if (authSelect) syncAuthVisibility(authSelect.dataset.authSelect);
-  });
-
-  // Delegation: transfer, delete, log toggle, tracker pills, restart ssh
   document.body.addEventListener('click', (e) => {
-    const pwToggle = e.target.closest('.pw-toggle');
-    if (pwToggle) {
-      togglePassword(pwToggle);
+    const t = e.target;
+    const filter = t.closest('[data-filter]');
+    if (filter) { state.filter = filter.dataset.filter; renderFilters(); renderTorrents(); return; }
+    const hfilter = t.closest('[data-hfilter]');
+    if (hfilter) { state.historyFilter = hfilter.dataset.hfilter; state.historyLimit = 50; renderHistory(); return; }
+    const transfer = t.closest('[data-transfer]');
+    if (transfer) { transfer.disabled = true; queueTorrents([transfer.dataset.transfer]); return; }
+    const del = t.closest('[data-delete]');
+    if (del) { deleteTransfer(del.dataset.delete); return; }
+    const log = t.closest('[data-log]');
+    if (log) {
+      const id = Number(log.dataset.log);
+      state.openLogs.has(id) ? state.openLogs.delete(id) : state.openLogs.add(id);
+      renderHistory();
       return;
     }
-
-    const restartBtn = e.target.closest('[data-restart]');
-    if (restartBtn) {
-      restartSsh(restartBtn.dataset.restart);
-      return;
-    }
-
-    const trackerPill = e.target.closest('.tracker-pill');
-    if (trackerPill) {
-      const tracker = trackerPill.dataset.tracker;
-      if (!tracker) {
-        state.activeTrackers.clear();
-      } else {
-        if (state.activeTrackers.has(tracker)) {
-          state.activeTrackers.delete(tracker);
-        } else {
-          state.activeTrackers.add(tracker);
-        }
-      }
-      updateTrackerFilter();
-      renderTorrents();
-      return;
-    }
-
-    const selectAllCheck = e.target.closest('#selectAllCheck');
-    if (selectAllCheck) {
-      const list = getFilteredTorrents();
-      // Only consider torrents that are NOT completed and NOT queued
-      const transferable = list.filter(t => t.transfer_status !== 'completed' && !t.queued);
-      const allSelected = transferable.length > 0 && transferable.every(t => state.selectedHashes.has(t.hash));
-      
-      if (allSelected) {
-        transferable.forEach(t => state.selectedHashes.delete(t.hash));
-      } else {
-        transferable.forEach(t => state.selectedHashes.add(t.hash));
-      }
-      renderTorrents();
-      return;
-    }
-
-    const rowCheck = e.target.closest('.row-check');
-    if (rowCheck) {
-      const tr = rowCheck.closest('tr');
-      if (tr && tr.dataset.hash) {
-        const hash = tr.dataset.hash;
-        if (state.selectedHashes.has(hash)) {
-          state.selectedHashes.delete(hash);
-        } else {
-          state.selectedHashes.add(hash);
-        }
-        renderTorrents();
-      }
-      return;
-    }
-
-    const stateFilterBtn = e.target.closest('[data-state-filter]');
-    if (stateFilterBtn) {
-      state.activeStateFilter = stateFilterBtn.dataset.stateFilter || '';
-      renderTorrents();
-      return;
-    }
-
-    const transferBtn = e.target.closest('[data-transfer]');
-    if (transferBtn && !transferBtn.disabled) {
-      queueTransfer(transferBtn.dataset.transfer);
-      return;
-    }
-
-    const deleteBtn = e.target.closest('[data-delete]');
-    if (deleteBtn) {
-      deleteTransfer(deleteBtn.dataset.delete);
-      return;
-    }
-
-    const logToggle = e.target.closest('.log-toggle');
-    if (logToggle) {
-      const msg = $(`#log-msg-${logToggle.dataset.id}`);
-      if (msg) {
-        msg.classList.toggle('expanded');
-        logToggle.textContent = msg.classList.contains('expanded') ? 'Ocultar log' : 'Ver log';
-      }
+    const pw = t.closest('.pw-toggle');
+    if (pw) {
+      const input = pw.parentElement.querySelector('input');
+      input.type = input.type === 'password' ? 'text' : 'password';
+      pw.classList.toggle('is-visible', input.type === 'text');
     }
   });
 }
 
 // ── Init ───────────────────────────────────────────────────
-const savedTheme = localStorage.getItem('transferv-theme') || 'dark';
-applyTheme(savedTheme);
-
+buildSettingsForm();
 bindEvents();
+showTab(location.hash.slice(1) || 'torrents');
 connectEvents();
 refreshAll();
-setInterval(() => {
-  state.nextCycleSeconds = 12;
-  loadTorrents().catch(() => {});
-  loadTransfers().catch(() => {});
-}, 12000);
-setInterval(() => {
-  state.nextCycleSeconds = Math.max(0, state.nextCycleSeconds - 1);
-  renderSidebarStats();
-  $$('[data-started]').forEach(el => {
-    el.textContent = durSince(el.dataset.started);
-  });
-}, 1000);
-setInterval(() => {
-  loadStatus().catch(() => {});
-}, 30000);
+
+const visible = () => !document.hidden;
+// Speeds come from qBittorrent (no SSE): poll only while the Torrents tab is on screen.
+setInterval(() => { if (visible() && state.tab === 'torrents') loadTorrents().catch(() => {}); }, 10000);
+// The server caches this for 60 s, so extra tabs cost no SSH connections.
+setInterval(() => { if (visible()) loadStatus(); }, 60000);
+// Elapsed timers.
+setInterval(() => { if (visible() && running()) { renderLive(); if (state.tab === 'queue') renderQueue(); } }, 1000);
+document.addEventListener('visibilitychange', () => { if (visible()) refreshAll(); });

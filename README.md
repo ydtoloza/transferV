@@ -70,14 +70,13 @@ docker compose -f docker-compose.prod.yml up -d
 
 ## ⚙️ First Configuration
 
-1. **qBittorrent Setup**: Set the WebUI URL, username, password, and download path.
-   * *Tip*: If qBittorrent runs in Docker, set the container path (e.g. `/downloads`) and the real SSH host path (e.g. `/home/mediaserver/media/downloads`).
-   * Las credenciales de qBittorrent (usuario y contraseña de la WebUI) se configuran en Ajustes → Configuración, en el bloque «Credenciales de qBittorrent».
-2. **Destination Path**: Set the fixed destination path where completed downloads should land.
-3. **Transfer Mode**: Choose your preferred transfer method (`local_pull`, `orchestrated_pull`, or `remote_push`).
-4. **SSH Configuration**: Configure SSH for the VPS and, when needed, for the destination server.
-   * Las credenciales del servidor origen y destino (usuario, método, ruta de llave o contraseña) se configuran en sus bloques «Credenciales SSH del servidor origen/destino»; se recomienda usar Llave SSH en lugar de contraseña.
-5. **Webhooks**: Configure the webhook URL, headers, and body template for notifications.
+Todo se configura en **Ajustes**. El formulario solo muestra lo que usa el modo elegido:
+
+1. **Modo**: `local_pull`, orquestado (`orchestrated_pull`) o `remote_push`. Cada modo indica en qué servidor debe existir cada llave SSH.
+2. **qBittorrent**: URL de la WebUI, usuario y contraseña.
+3. **Servidor origen / destino**: usuario, host, puerto y llave o contraseña (se recomienda llave). El destino solo aparece en los modos que lo usan.
+4. **Rutas**: carpeta de destino y, si qBittorrent corre en Docker, la traducción `/downloads` → ruta real en el origen.
+5. **Probar conexión** guarda y verifica qBittorrent y los SSH en un clic.
 
 ## 🔔 Webhooks & Notificaciones
 
@@ -129,7 +128,9 @@ Variables disponibles en el template:
 ## 📝 Notes
 
 * The Docker image includes `rsync` and `openssh-client`.
-* Password SSH auth uses `sshpass`; key auth is recommended.
+* Password SSH auth uses `sshpass` (via `$SSHPASS`, so it never shows in `ps`); key auth is recommended.
+* SSH connections are multiplexed (`ControlMaster`/`ControlPersist`, 10 min): all checks and rsync runs reuse one connection per host instead of opening a new handshake each time. Override with `TRANSFERV_SSH_CONTROL_DIR` / `TRANSFERV_SSH_PERSIST`.
+* Destination verification (detect deleted files and torrents already present) runs every `verify_interval_minutes` (default 15, `0` disables) using **one** SSH call for all paths.
 * SSH key files should be mounted into the container and referenced from the settings screen.
 * In `orchestrated_pull` mode, the destination server must be able to SSH into the VPS by the configured Tailscale host/name.
 * The qBittorrent WebUI API must be reachable from where TransferV runs.

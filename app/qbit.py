@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import PurePosixPath
 
 import httpx
@@ -37,28 +38,20 @@ class QbitClient:
         if response.text.strip() != "Ok.":
             raise QbitError("qBittorrent login failed.")
 
-    async def torrents(self, queued_hashes: set[str] | None = None) -> list[Torrent]:
-        response = await self.client.get(f"{self.base_url}/api/v2/torrents/info")
+    async def torrents(
+        self,
+        queued_hashes: set[str] | None = None,
+        hashes: list[str] | None = None,
+    ) -> list[Torrent]:
+        params = {"hashes": "|".join(hashes)} if hashes else None
+        response = await self.client.get(f"{self.base_url}/api/v2/torrents/info", params=params)
         response.raise_for_status()
         queued_hashes = queued_hashes or set()
-        items = [
-            await self._build_torrent(raw, raw.get("hash", "") in queued_hashes)
+        items = await asyncio.gather(*(
+            self._build_torrent(raw, raw.get("hash", "") in queued_hashes)
             for raw in response.json()
-        ]
-        # Sort by added_on descending (newest first)
-        items.sort(key=lambda t: t.added_on, reverse=True)
-        return items
-
-    async def torrent(self, torrent_hash: str) -> Torrent | None:
-        response = await self.client.get(
-            f"{self.base_url}/api/v2/torrents/info",
-            params={"hashes": torrent_hash},
-        )
-        response.raise_for_status()
-        items = response.json()
-        if not items:
-            return None
-        return await self._build_torrent(items[0])
+        ))
+        return sorted(items, key=lambda t: t.added_on, reverse=True)
 
     async def _build_torrent(self, raw: dict, queued: bool = False) -> Torrent:
         torrent_hash = raw.get("hash", "")

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
+import logging
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -10,26 +12,53 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import db, events
-from app.models import ApiMessage, AppSettings, TransferCreate, TransferRecord
+from app.models import ApiMessage, AppSettings, SshSettings, TransferCreate, TransferMode, TransferRecord, TransferStatus
 from app.qbit import QbitClient
-from app.worker import TransferWorker, process_next_transfer
+from app.transfer import is_configured, run_ssh
+from app.worker import TransferWorker
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
-app = FastAPI(title="TransferV")
 worker = TransferWorker()
 static_dir = Path(__file__).parent / "static"
 
 
-@app.on_event("startup")
-async def startup() -> None:
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
     db.init_db()
     worker.start()
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
+    yield
     await worker.stop()
 
+
+app = FastAPI(title="TransferV", lifespan=lifespan)
+
+
+# ── small TTL cache shared by every browser tab ────────────
+
+class TtlCache:
+    def __init__(self, ttl: float) -> None:
+        self.ttl = ttl
+        self.value = None
+        self.at = 0.0
+        self.lock = asyncio.Lock()
+
+    def clear(self) -> None:
+        self.at = 0.0
+
+    async def get(self, compute, force: bool = False):
+        async with self.lock:  # concurrent callers share one computation
+            if force or time.monotonic() - self.at > self.ttl:
+                self.value = await compute()
+                self.at = time.monotonic()
+            return self.value
+
+
+status_cache = TtlCache(ttl=60)
+torrents_cache = TtlCache(ttl=4)
+
+
+# ── settings ───────────────────────────────────────────────
 
 @app.get("/api/settings", response_model=AppSettings)
 async def get_settings() -> AppSettings:
@@ -38,57 +67,74 @@ async def get_settings() -> AppSettings:
 
 @app.put("/api/settings", response_model=AppSettings)
 async def put_settings(settings: AppSettings) -> AppSettings:
-    return db.save_settings(settings)
+    saved = db.save_settings(settings)
+    status_cache.clear()
+    torrents_cache.clear()
+    worker.wake()
+    return saved
 
 
-@app.get("/api/torrents")
-async def get_torrents() -> list[dict]:
+# ── torrents / transfers ───────────────────────────────────
+
+async def _load_torrents() -> list[dict]:
     settings = db.get_settings()
-    try:
-        async with QbitClient(settings) as qbit:
-            torrents = await qbit.torrents(db.active_hashes())
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-        
-    transfers = db.list_transfers()
-    completed_hashes = {t.torrent_hash for t in transfers if t.status.value == "completed"}
-    
+    async with QbitClient(settings) as qbit:
+        torrents = await qbit.torrents(db.active_hashes())
+    completed = db.hashes_with_status(TransferStatus.completed)
     result = []
     for torrent in torrents:
         data = torrent.model_dump()
-        if torrent.hash in completed_hashes:
+        if torrent.hash in completed:
             data["transfer_status"] = "completed"
         result.append(data)
     return result
 
 
+@app.get("/api/torrents")
+async def get_torrents() -> list[dict]:
+    try:
+        return await torrents_cache.get(_load_torrents)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @app.post("/api/transfers", response_model=TransferRecord)
 async def post_transfer(item: TransferCreate) -> TransferRecord:
-    settings = db.get_settings()
     try:
-        return db.create_transfer(item, settings)
+        record = db.create_transfer(item, db.get_settings())
     except Exception as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    torrents_cache.clear()
+    worker.wake()
+    return record
 
 
 @app.get("/api/transfers", response_model=list[TransferRecord])
-async def get_transfers() -> list[TransferRecord]:
-    return db.list_transfers()
+async def get_transfers(limit: int = 1000) -> list[TransferRecord]:
+    return db.list_transfers(limit=min(max(limit, 1), 5000))
 
 
 @app.delete("/api/transfers/{transfer_id}", response_model=ApiMessage)
 async def delete_transfer(transfer_id: int) -> ApiMessage:
-    deleted = db.delete_transfer(transfer_id)
-    if not deleted:
+    if not db.delete_transfer(transfer_id):
         raise HTTPException(status_code=404, detail="Transfer not found.")
+    torrents_cache.clear()
     return ApiMessage(ok=True, message="Transfer deleted.")
 
 
 @app.post("/api/worker/run-once", response_model=ApiMessage)
 async def run_worker_once() -> ApiMessage:
-    await process_next_transfer()
-    return ApiMessage(ok=True, message="Worker cycle completed.")
+    worker.wake()
+    return ApiMessage(ok=True, message="Ciclo solicitado.")
 
+
+@app.post("/api/worker/verify", response_model=ApiMessage)
+async def run_verify() -> ApiMessage:
+    worker.wake(verify=True)
+    return ApiMessage(ok=True, message="Verificación solicitada.")
+
+
+# ── real-time events ───────────────────────────────────────
 
 @app.get("/api/events")
 async def events_stream(request: Request) -> StreamingResponse:
@@ -97,9 +143,7 @@ async def events_stream(request: Request) -> StreamingResponse:
     async def stream():
         try:
             yield "retry: 4000\n\n"
-            while True:
-                if await request.is_disconnected():
-                    break
+            while not await request.is_disconnected():
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=15)
                 except asyncio.TimeoutError:
@@ -117,71 +161,63 @@ async def events_stream(request: Request) -> StreamingResponse:
     )
 
 
-@app.get("/api/status")
-async def get_status() -> dict:
+# ── connection status ──────────────────────────────────────
+
+def hosts_for_mode(settings: AppSettings) -> dict[str, SshSettings]:
+    """Only the hosts this mode actually uses get checked."""
+    if settings.transfer_mode == TransferMode.local_pull:
+        return {"vps": settings.vps_ssh}
+    return {"vps": settings.vps_ssh, "destination": settings.destination_ssh}
+
+
+async def _compute_status() -> dict:
     settings = db.get_settings()
 
-    # Check QBit
-    qbit_ok = False
-    try:
-        async with QbitClient(settings) as qbit:
-            qbit_ok = True
-    except Exception:
-        pass
-
-    async def check_ssh(ssh_settings):
-        if not ssh_settings.host or not ssh_settings.username:
-            return False
+    async def check_qbit() -> bool:
         try:
-            from app.transfer import ssh_prefix
-            cmd = ssh_prefix(ssh_settings)
-            cmd.extend([f"{ssh_settings.username}@{ssh_settings.host}", "echo", "1"])
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await asyncio.wait_for(process.communicate(), timeout=10.0)
-            return process.returncode == 0
+            async with QbitClient(settings):
+                return True
         except Exception:
             return False
 
-    vps_ok = await check_ssh(settings.vps_ssh)
-    dest_ok = await check_ssh(settings.destination_ssh)
+    async def check_ssh(ssh: SshSettings) -> dict:
+        if not is_configured(ssh):
+            return {"ok": False, "error": "Sin configurar"}
+        code, out = await run_ssh(ssh, "true", timeout=20)
+        return {"ok": code == 0, "error": "" if code == 0 else out[-300:]}
 
-    return {
-        "qbit": qbit_ok,
-        "vps": vps_ok,
-        "destination": dest_ok
-    }
+    hosts = hosts_for_mode(settings)
+    results = await asyncio.gather(check_qbit(), *(check_ssh(h) for h in hosts.values()))
+    status: dict = {"qbit": results[0], "vps": None, "destination": None}
+    status.update(dict(zip(hosts, results[1:])))
+    return status
+
+
+@app.get("/api/health")
+async def health() -> dict:
+    """Liveness only: touches neither qBittorrent nor SSH (used by the Docker healthcheck)."""
+    return {"ok": True}
+
+
+@app.get("/api/status")
+async def get_status(force: bool = False) -> dict:
+    return await status_cache.get(_compute_status, force=force)
+
 
 @app.post("/api/system/restart-ssh/{target}", response_model=ApiMessage)
 async def restart_ssh(target: str) -> ApiMessage:
     settings = db.get_settings()
-    ssh_settings = settings.vps_ssh if target == "vps" else settings.destination_ssh
-    if not ssh_settings.host or not ssh_settings.username:
+    if target not in ("vps", "destination"):
+        raise HTTPException(status_code=400, detail="Destino inválido")
+    ssh = settings.vps_ssh if target == "vps" else settings.destination_ssh
+    if not is_configured(ssh):
         raise HTTPException(status_code=400, detail="SSH no configurado")
-
-    try:
-        from app.transfer import ssh_prefix
-        cmd = ssh_prefix(ssh_settings)
-        # Force sudo restart sshd
-        cmd.extend([
-            f"{ssh_settings.username}@{ssh_settings.host}", 
-            "sudo systemctl restart ssh || sudo systemctl restart sshd"
-        ])
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        out, err = await asyncio.wait_for(process.communicate(), timeout=15.0)
-        if process.returncode != 0:
-            raise Exception(f"Exit {process.returncode}: {err.decode('utf-8', 'replace')}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-        
+    code, out = await run_ssh(ssh, "sudo systemctl restart ssh || sudo systemctl restart sshd", timeout=20)
+    if code != 0:
+        raise HTTPException(status_code=500, detail=f"Exit {code}: {out}")
+    status_cache.clear()
     return ApiMessage(ok=True, message=f"SSH reiniciado en {target}")
+
 
 @app.get("/")
 async def index() -> FileResponse:
